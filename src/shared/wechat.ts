@@ -1,0 +1,44 @@
+// 公众号账号池类型。cookie/token 属敏感数据，加密落盘（见 docs/wechat-login.md）。
+
+export type WxAccountStatus = 'active' | 'cooldown' | 'expired'
+
+export interface WxAccount {
+  id: string
+  nickname?: string
+  token: string
+  cookies: Record<string, string>
+  fingerprint?: string
+  partition: string // persist:wx-<id>
+  status: WxAccountStatus
+  cooldownUntil?: number // 命中限流后恢复时刻 UTC ms
+  requestsThisHour: number // 滑动窗口计数
+  windowStart: number // 当前小时窗口起点 UTC ms
+  lastUsedAt?: number
+}
+
+/** 账号池对外可见的健康快照（不含敏感 cookie/token） */
+export interface WxAccountView {
+  id: string
+  nickname?: string
+  status: WxAccountStatus
+  cooldownUntil?: number
+  requestsThisHour: number
+  hourLimit: number
+}
+
+/** searchbiz 搜索候选 */
+export interface WxSearchResult {
+  fakeid: string
+  nickname: string
+  alias: string
+  signature: string
+  roundHeadImg?: string
+}
+
+/** 频率控制错误码（base_resp.ret） */
+export const WX_FREQ_CONTROL_CODE = 200013
+
+/** 采集接口调用结果的标准化返回 */
+export type WxCallResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; reason: 'freq_control' | 'expired' | 'error'; message: string }

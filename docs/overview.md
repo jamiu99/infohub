@@ -3,7 +3,7 @@
 > 本文件是 infohub 的**唯一进度入口**。所有子文档从这里派生，改任何模块都要回来更新对应状态行。
 > 铁律：**代码和文档同步更新，禁止版本分离**。每完成一个可验证的点，就在这里勾掉并链到细节。
 
-最后更新：2026-07-06 · 阶段：**P1 公众号监控为当前主线**（用户优先级最高）
+最后更新：2026-07-06 · 阶段：**P1 公众号监控核心链路已实现**（typecheck/build/12 项测试通过，待真机扫码联调）
 
 ---
 
@@ -45,21 +45,24 @@
 图例：⬜ 未开始 · 🟡 进行中 · ✅ 完成 · ⏸ 暂缓
 
 ### P0 — Agent 框架 + 信源契约
-- 🟡 项目骨架 + 文档体系
-- ⬜ 数据契约锁定（RawItem / Article / Source）→ [contract.md](contract.md)
-- ⬜ ingest 接口定义 + 一个 RSS adapter 跑通全链路 → [ingest.md](ingest.md)
-- ⬜ store 落地（文件布局 + SQLite schema） → [storage.md](storage.md)
+- ✅ 项目骨架 + 文档体系（electron-vite + Vue3 + TS，typecheck/build 通过）
+- ✅ 数据契约锁定（RawItem / Article / Source）→ `src/shared/contract.ts` · [contract.md](contract.md)
+- ✅ ingest 接口 + wechat adapter → `src/core/ingest/` · [ingest.md](ingest.md)
+- ✅ store 落地（文件布局 + SQLite schema，往返测试通过） → `src/core/store/` · [storage.md](storage.md)
 - ⬜ Agent CLI 接入最小验证（驱动 claude -p 读目录产出摘要） → [agent.md](agent.md)
+- ⬜ RSS adapter（P0 原定链路，公众号优先，暂缓）
 
 ### P1 — 公众号监控（★ 当前主线，几十个号量级）
-产品形态/UI/UX/调度见 [wechat-monitor.md](wechat-monitor.md)。
-- ⬜ 扫码登录 BrowserWindow + cookie/token 抓取 → [wechat-login.md](wechat-login.md)
-- ⬜ 采集核心：searchbiz（搜号）+ appmsg（拉文章），复用 refs 接口 → [ingest.md](ingest.md#微信公众号)
-- ⬜ 多账号池 + 配额/限流调度器（错误码 200013，排队） → [wechat-login.md](wechat-login.md#四多账号与限流)
-- ⬜ 关注列表 + 定时轮询 + 手动刷新 → [wechat-monitor.md](wechat-monitor.md#四轮询与调度)
-- ⬜ 三栏监控 UI（源列表/文章流/详情） → [wechat-monitor.md](wechat-monitor.md#二主界面三栏布局)
-- ⬜ 配额可视化 + 登录失效引导 UX → [wechat-monitor.md](wechat-monitor.md#五ux-重点监控场景的成败在这两处)
-- ⬜ cookie 失效状态机 + 扫码引导
+产品形态/UI/UX/调度见 [wechat-monitor.md](wechat-monitor.md)。**核心链路已实现并通过 12 项测试。**
+- ✅ 扫码登录 BrowserWindow + cookie/token 抓取 → `src/main/wechat-login.ts` · [wechat-login.md](wechat-login.md)
+- ✅ 采集核心：searchbiz + appmsg，复用 refs 接口 → `src/core/ingest/wechat.ts` · [ingest.md](ingest.md#微信公众号)
+- ✅ 多账号池 + 配额/限流调度器（200013，轮换/冷却/窗口滚动） → `src/core/agent/account-pool.ts`
+- ✅ 关注列表 + 定时轮询 + 手动刷新 → `src/core/agent/poller.ts` + `src/main/service.ts`
+- ✅ 三栏监控 UI（源列表/文章流/详情） → `src/renderer/src/components/`
+- ✅ 配额可视化 + 登录失效引导 UX → `QuotaPanel.vue`
+- ✅ cookie 失效状态机 + 扫码引导 → account-pool + relogin IPC
+- ⬜ 正文抓取（list_ex 只给摘要，需抓 link 页面转 md）
+- ⬜ 真机联调：实际扫码 → 搜号 → 采集验证（需人工扫码，见下）
 
 ### P2 — 简报
 - ⬜ 入库 pipeline（清洗/摘要/打分） → [process.md](process.md)
@@ -85,6 +88,7 @@
 | [storage.md](storage.md) | 存储：文件布局 + SQLite 索引 schema |
 | [agent.md](agent.md) | AI 基建：CLI 集成、stream-json、自我修改约束 |
 | [decisions.md](decisions.md) | 决策日志（ADR）：为什么这么选 |
+| [dev-log.md](dev-log.md) | 开发日志 & 代码地图（文档↔实现映射、如何运行/测试） |
 
 ## 6. 未决待定项
 
