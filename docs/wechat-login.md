@@ -19,35 +19,33 @@
 **不走**模拟登录 API（要处理账密、验证码、风控，脆弱且违规风险高）。
 **走**：Electron 开一个 `BrowserWindow` 直接加载官方登录页 `https://mp.weixin.qq.com/`，你用手机微信扫码，登录态由官方页面自己建立，App 只是"读"这个窗口的 session。
 
-### ⚠️ 关键认知（经用户确认 + 调研，2026-07-06 修正）
+### ⚠️ 关键认知（经用户确认，2026-07-06 定稿）
 
-用户的多个公众号**都挂在同一个微信号名下**（拥有运营权）。这决定了多账号的正确做法：
+用户要采集的号是**不同微信号的独立账号**，各自独立扫码登录。这决定了多账号的正确做法：
 
-- 直接登某个号 → **要输密码**（麻烦）。
-- 先扫码登主微信号 → 用后台**「切换账号」**切到旗下各号 → **全程免密**。
-- 每切一个号，URL 里的 **token 会变**（cookie 基本不变，同一微信会话）。
-- 采集只需**任一**有效 token 就能 searchbiz 搜 / appmsg 拉**任何**目标号 → 多 token = **轮换池分摊请求量**。
+- 每个号用**独立会话分区** `persist:wx-<id>` → cookie/token **完全隔离**，互不覆盖、互不失效。
+- **不做**任何"切换账号"逻辑（那是同一微信号名下多公众号的场景，与此不符）。
+- 因为各号独立，**不存在"切换后旧 token 失效"问题**——每个号的 token 只属于自己。
+- 采集只需任一有效 token 就能 searchbiz 搜 / appmsg 拉任何目标号 → 多个独立号 = **真正的轮换池分摊请求量**（独立主体，配额分摊有效）。
 
-所以 ❌ 不是"每个号独立分区各自扫码"（那样每号都要输密码），而是 ✅ **单一共享分区 + 一次扫码 + 监听 token 变化自动捕获**。
+> 曾一度误设计为"共享分区 + 切换账号自动捕获"，因用户场景是独立微信号而推翻。若共享分区登第二个号会覆盖第一个的登录态——独立分区才正确。
 
 ### 流程（当前实现 `src/main/wechat-login.ts`）
 
 ```
-1. 所有号共享一个分区：session.fromPartition('persist:wx-main')
-2. 打开 BrowserWindow 加载 mp.weixin.qq.com，用户手机扫码登录主微信号
-3. 用户在窗口内点后台「切换账号」，切到旗下每个要采集的号
-4. App 监听 'did-navigate' / 'did-navigate-in-page'：
-   - 每出现一个【新】token（/[?&]token=(\d+)/，去重 seenTokens）
-   - 就抓该刻 cookie + 读昵称，回调 onCapture → 入池
-5. 用户切完关窗，count 个号已进池。persist 分区持久化，下次免扫码
+1. 点"扫码登录" → main 生成新 id，开独立分区 session.fromPartition('persist:wx-<id>')
+2. BrowserWindow 加载 mp.weixin.qq.com，注入中文引导横幅（原生标题栏 WSLg 无中文字体，故走页面内）
+3. 用户手机扫码登录【这一个号】→ 后台跳转 URL 带 token，监听 did-navigate 记录 lastToken
+4. 用户关窗 → close 事件里 preventDefault，异步抓 cookie + 读昵称 + 用 lastToken 组装账号 → 入池
+5. persist 分区持久化，下次免扫码。想加更多号 → 再点一次登录，另开独立分区
 ```
 
 ### 关键点
 
-- **单一 `persist:wx-main` 分区**：一次扫码即持久化整个微信会话；旗下所有号共享它，切换免密。
-- **按 token 变化捕获**：切换账号 = URL token 变，监听导航即可无感捕获，无需用户额外操作。
-- **身份去重**：用 `identityKey`（优先公众号昵称）识别同一号，重复捕获则**更新** token 而非新增。
-- **配额分摊存疑**：同一微信号下切出的多 token，能否真正躲开 200013 取决于微信按什么维度限流（微信号 vs token）——**需采集时实测**。机制先按此工作流建。
+- **独立 `persist:wx-<id>` 分区**：每个号一套隔离的 cookie/token，互不干扰。这是多账号的正确地基。
+- **关窗时捕获**：不监听中间导航态（避免误抓登录落地页），以关窗那刻的 lastToken + cookie 为准。
+- **token 抓取**：登录成功后 URL 才带 token（`/[?&]token=(\d+)/`）。
+- **中文引导横幅**：注入登录页顶部（Chromium 渲染中文正常），规避 WSLg 原生标题栏乱码。
 - **fingerprint**：登录时未强制抓，缺失多数接口仍可用；如遇校验失败再从页面 JS 上下文补抓。
 
 ## 三、账号池与持久化
@@ -62,7 +60,7 @@ interface WxAccount {
   token: string;            // 该号当前 token（切换/失效会更新）
   cookies: Record<string, string>;
   fingerprint?: string;
-  partition: string;        // 统一 persist:wx-main（同一微信会话）
+  partition: string;        // 每个号独立 persist:wx-<id>
   status: 'active' | 'cooldown' | 'expired';
   cooldownUntil?: number;   // 命中限流后的恢复时刻（UTC ms）
   requestsThisHour: number; // 滑动窗口计数
@@ -72,7 +70,7 @@ interface WxAccount {
 ```
 
 - **加密存储**：cookie/token 用 Electron `safeStorage`（OS keychain 加密）落盘，不明文入库、不入 git。
-- **共享 cookie**：所有号同分区，cookie 大体共享，差异主要在各自的 token。
+- **独立分区**：各号 cookie/token 完全隔离，互不覆盖。
 - 账号池文件与正文数据分离，见 [storage.md](storage.md)。
 
 ## 四、多账号与限流

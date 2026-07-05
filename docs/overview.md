@@ -63,8 +63,11 @@
 - ✅ cookie 失效状态机 + 扫码引导 → account-pool + relogin IPC
 - ✅ 正文抓取（抓 link 页面 → #js_content → markdown） → `src/core/process/content.ts`
 - ✅ **安全加固**：关自动轮询（纯手动）+ 采集全局串行锁 + 频率压到极保守（20/时·10s 间隔·单次1页）
-- 🟡 真机联调：已扫 1 个账号（成功落盘）；搜号/采集待验证。**联调期禁止并发、禁止拿真号压测**
-- ⬜ **多账号切换 bug**：用户反馈"有些账号要先登进去点切换才能换号"——调研中，见 [wechat-login.md](wechat-login.md)
+- ✅ 真机联调关键验证：已登 2 个号（独立分区）；**采集链路端到端跑通**（searchbiz+appmsg 真实拉到 523 篇文章，未触限流）
+- ✅ 多账号模型定稿：不同微信号 = 各自独立分区（非"切换账号"），见 [wechat-login.md](wechat-login.md)
+- ✅ 去掉 Electron 默认菜单栏（File/Edit/View…）
+- ⬜ **账号池明文存储需修**：本机 safeStorage 无 keychain 走了明文兜底（见 dev-log 待修）
+- ⬜ UI 全流程点击验证 + UI 美化（用户反馈"丑"）
 
 ### 安全约束（应 jamiu 要求，硬性）
 - **默认不自动采集**：无定时轮询，只在用户手动点刷新时发请求。

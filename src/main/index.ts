@@ -1,8 +1,11 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, shell, Menu } from 'electron'
 import { join } from 'node:path'
 import { Service } from './service'
 
 let service: Service | null = null
+
+// 去掉 Electron 默认的 File/Edit/View/Window 原生菜单栏（这不是浏览器，用不上）
+Menu.setApplicationMenu(null)
 
 function createWindow(): void {
   const win = new BrowserWindow({

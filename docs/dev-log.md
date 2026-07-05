@@ -47,13 +47,21 @@ WSLg（Win11）自带显示；老 WSL 需装 X server 或用 WSLg。装完 `pnpm
   - 账号池：负载均衡挑号 / 超配额不选 / 200013→cooldown→恢复 / 失效→expired / 窗口滚动清零 / 重登复活 / earliestRecovery。
   - 存储：归一化+落地+索引 / 时间转 UTC ms / 去重 / 未读计数 / 重建索引。
 
-## 待真机联调（需人工扫码，CC 无法自动完成）
+## 真机联调（2026-07-06，已完成关键验证 ✅）
 
-1. `pnpm dev` 起 App → 点扫码登录 → 手机扫码 → 确认能抓到 cookie+token 存入账号池。
-2. 加公众号（searchbiz 真实返回）→ 自动采集 → 文章流出现文章。
-3. 观察配额条随请求增长、限流时 cooldown 显示。
+- ✅ 扫码登录：独立分区，用户扫码登录一个号 → 关窗抓 token+cookie 入池。已登两个号（不同微信号）。
+- ✅ **采集链路端到端跑通**（`scripts/probe-collect.mts` 真实验证）：
+  - searchbiz 搜"特工宇宙"→ 返回 5 候选 + 正确 fakeid。
+  - appmsg 拉"特工宇宙"→ 共 523 篇，第 1 页真实标题正常。
+  - 账号未触发 200013，鉴权三要素有效。
+- ⬜ UI 上手动搜号/加号/刷新的全流程点击验证（core 链路已证，IPC 层待点）。
 
-> 扫码/真实接口依赖登录态与网络，无法在无人值守下验证；代码路径已就绪，联调是下一步。
+## ⚠️ 待修问题（联调发现）
+
+- **账号池明文存储**：本 WSL 环境 `safeStorage.isEncryptionAvailable()` 为 false（无 OS keychain），
+  `secrets.ts` 走了明文兜底 → `wx-accounts.enc` 实为明文 JSON，含 cookie/token。
+  联调期可接受（data/ 已 gitignore、本地文件），但**上线前必须修**：
+  接入 keychain / DPAPI，或用用户口令派生密钥加密。已在 storage/wechat-login 安全约束中标记。
 
 ## 已知待补（非阻塞）
 

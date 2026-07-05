@@ -1,22 +1,19 @@
-// 扫码登录 + 多账号捕获。见 docs/wechat-login.md。
+// 扫码登录。见 docs/wechat-login.md。
 //
-// 关键认知（经用户确认 + 调研）：用户的多个公众号都挂在【同一个微信号】名下。
-//   - 直接登某个号要输密码；先扫码登主微信号、再用后台"切换账号"切到旗下各号则【免密】。
-//   - 每切一个号，URL 里的 token 会变（cookie 基本不变，同一微信会话）。
-//   - 采集只需任一有效 token 即可搜/拉任何目标号 → 多 token = 轮换池分摊请求量。
+// 场景（用户确认）：多个号是【不同微信号的独立账号】，各自独立扫码登录。
+//   因此每个账号用【独立会话分区】(persist:wx-<id>)，cookie/token 完全隔离、
+//   互不覆盖、互不失效——这也彻底规避了"切换账号后旧 token 失效"的问题。
 //
-// 因此登录窗口【只扫一次码】，之后监听 token 变化：用户每切一个号就自动捕获
-//   {nickname, token, cookies} 进池。全程共享同一 persist 分区，免密。
+// 交互模型（用户要的简单方式）：
+//   点登录 → 开一个窗口(独立分区) → 用户扫码登录某个号 → 关窗时抓当前 token+cookie 存下。
+//   想加更多号，就再点一次登录，另开一个独立分区窗口。不做任何"内部切换账号"逻辑。
 import { BrowserWindow, session } from 'electron'
 import type { WxAccount } from '../shared/wechat'
 
 const HOME = 'https://mp.weixin.qq.com/'
 const TOKEN_RE = /[?&]token=(\d+)/
 
-/** 所有账号共享的登录分区：一次扫码，持久化整个微信会话 */
-export const SHARED_PARTITION = 'persist:wx-main'
-
-export interface CapturedIdentity {
+export interface LoginResult {
   token: string
   cookies: Record<string, string>
   nickname?: string
@@ -41,62 +38,89 @@ async function readNickname(wc: Electron.WebContents): Promise<string | undefine
   }
 }
 
+/** 往登录页顶部注入中文引导横幅（Chromium 渲染，避开原生标题栏 WSLg 无中文字体的乱码） */
+async function injectBanner(wc: Electron.WebContents, loggedIn: boolean): Promise<void> {
+  const tip = loggedIn
+    ? '已检测到登录。确认是要采集的号后，直接关闭本窗口即可保存该账号。'
+    : '请用手机微信扫码登录【要采集的这个公众号】。登录成功后关闭本窗口，即保存该账号。'
+  const js = `(() => {
+    const ID='__infohub_banner__';
+    let el=document.getElementById(ID);
+    if(!el){el=document.createElement('div');el.id=ID;
+      el.style.cssText='position:fixed;top:0;left:0;right:0;z-index:2147483647;'
+        +'background:#2f6feb;color:#fff;padding:8px 14px;font-size:13px;line-height:1.5;'
+        +'font-family:"Noto Sans CJK SC","Noto Sans SC",sans-serif;box-shadow:0 2px 6px rgba(0,0,0,.2);';
+      document.body.appendChild(el);document.body.style.paddingTop='40px';}
+    el.textContent='infohub · '+${JSON.stringify(tip)};
+  })()`
+  try {
+    await wc.executeJavaScript(js)
+  } catch {
+    /* CSP/时机问题忽略 */
+  }
+}
+
 /**
- * 打开登录/切换窗口。用户扫码登录后，可在窗口内点"切换账号"切到旗下各号；
- * 每捕获到一个新 token 就回调 onCapture。窗口关闭时 resolve（返回捕获总数）。
- * @param onCapture 每当 URL 出现新的 token 身份时触发
+ * 打开一个独立分区的登录窗口。用户扫码登录一个公众号后，关窗时抓取其 token+cookie。
+ * @param partition 该账号独立分区 persist:wx-<id>
+ * @returns 登录结果；若用户未登录就关窗（无 token）则 resolve(null)
  */
-export function openWechatSwitcher(
-  onCapture: (id: CapturedIdentity) => void
-): Promise<{ count: number }> {
+export function openWechatLogin(partition: string): Promise<LoginResult | null> {
   return new Promise((resolve) => {
-    const ses = session.fromPartition(SHARED_PARTITION)
+    const ses = session.fromPartition(partition)
     const win = new BrowserWindow({
       width: 1040,
       height: 760,
-      title: '登录微信公众号后台 · 扫码后可切换账号采集',
-      webPreferences: { partition: SHARED_PARTITION, contextIsolation: true, nodeIntegration: false }
+      title: 'infohub - WeChat login',
+      webPreferences: { partition, contextIsolation: true, nodeIntegration: false }
     })
 
-    const seenTokens = new Set<string>()
-    let count = 0
+    // 记录当前观察到的登录态（关窗时以此为准抓取）
+    let lastToken: string | null = null
 
     const onNavigate = async (url: string): Promise<void> => {
       const m = url.match(TOKEN_RE)
-      if (!m) return
-      const token = m[1]
-      if (seenTokens.has(token)) return // 同一号重复导航，跳过
-      seenTokens.add(token)
-      // 稍等页面渲染出昵称
-      const wc = win.webContents
-      const [cookies, nickname] = await Promise.all([readCookies(ses), readNickname(wc)])
-      count++
-      onCapture({ token, cookies, nickname })
+      if (m) {
+        lastToken = m[1]
+        await injectBanner(win.webContents, true)
+      }
     }
 
+    win.webContents.on('did-finish-load', () => void injectBanner(win.webContents, !!lastToken))
     win.webContents.on('did-navigate', (_e, url) => void onNavigate(url))
     win.webContents.on('did-navigate-in-page', (_e, url) => void onNavigate(url))
-    win.on('closed', () => resolve({ count }))
 
-    win.loadURL(HOME).catch(() => resolve({ count }))
+    win.on('close', async (e) => {
+      // 关窗时若已登录，抓取当前 token+cookie。用 preventDefault 等异步抓完再真正关。
+      if (lastToken && !(win as unknown as { _captured?: boolean })._captured) {
+        e.preventDefault()
+        ;(win as unknown as { _captured?: boolean })._captured = true
+        try {
+          const [cookies, nickname] = await Promise.all([
+            readCookies(ses),
+            readNickname(win.webContents)
+          ])
+          resolve({ token: lastToken, cookies, nickname })
+        } catch {
+          resolve({ token: lastToken, cookies: {}, nickname: undefined })
+        } finally {
+          if (!win.isDestroyed()) win.destroy()
+        }
+      }
+    })
+    win.on('closed', () => resolve(null)) // 未登录就关 → 无账号
+
+    win.loadURL(HOME).catch(() => resolve(null))
   })
 }
 
-/**
- * 由捕获身份构造/更新账号。身份键优先用 nickname（公众号名），缺失时退回 token 前缀。
- * 同一号再次捕获（token 更新）时应复用同一 id —— 交给调用方按 identityKey 去重。
- */
-export function identityKey(id: CapturedIdentity): string {
-  return id.nickname ? `wx:${id.nickname}` : `wx:tok-${id.token.slice(0, 8)}`
-}
-
-export function makeAccount(accountId: string, id: CapturedIdentity, now: number): WxAccount {
+export function makeAccount(accountId: string, partition: string, r: LoginResult, now: number): WxAccount {
   return {
     id: accountId,
-    nickname: id.nickname,
-    token: id.token,
-    cookies: id.cookies,
-    partition: SHARED_PARTITION,
+    nickname: r.nickname,
+    token: r.token,
+    cookies: r.cookies,
+    partition,
     status: 'active',
     requestsThisHour: 0,
     windowStart: now
