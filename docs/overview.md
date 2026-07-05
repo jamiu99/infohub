@@ -74,11 +74,13 @@
 - **全局串行**：`Collector` 有互斥锁，任何时刻只有一个 wechat 请求链，UI 连点也排队。
 - **极保守频率**：联调期 `rate-limit.ts` 压到远低于实测上限，保护真实账号。
 
-### P2 — 简报（调研完成，方案定稿，待用户确认）
-- ✅ 调研 + 实测定稿：技术底座 spawn `claude -p`（复用登录态零配置）+ 简报方法论 → [briefing.md](briefing.md)
-- ⬜ MVP：spawn claude 一步生成简报（读文章 → 排序 → 摘要 → 结构化产出）
-- ⬜ 简报落文件 `data/briefings/` + UI 简报视图
-- ⬜ 演进（按需）：预排序 / 语义去重 / 软文过滤
+### P2 — AI 处理（改为 Skill 形态，用户确认）
+方向：不做 App 硬编码功能，做成 **Claude Code Skills**——用户在数据目录自己跑 `claude`，agent 自动发现并处理。见 [agent.md](agent.md#-skill-机制定稿2026-07-06已实测跑通)。
+- ✅ 调研 skill 机制 + 实测跑通闭环
+- ✅ **summarize skill**（摘要+价值打分+标签，回写 frontmatter）——真实文章验证通过
+- ✅ App 首启安装内置 skills 到 `data/.claude/skills/` + 写数据目录 README 引导
+- ⬜ 后续 skill：每日简报（读文章→排序→生成到 briefings/）、知识库索引
+- 简报方法论沉淀见 [briefing.md](briefing.md)（作为写 briefing skill 时的参考）
 
 ### P3 — 知识库 / Wiki
 - ⬜ 全文检索（SQLite FTS5）+ 向量检索

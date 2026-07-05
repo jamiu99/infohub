@@ -18,6 +18,7 @@ import type { Source } from '../shared/contract'
 import type { DiscoverResult } from '../core/ingest/adapter'
 import { saveAccounts, loadAccounts } from './secrets'
 import { openWechatLogin, makeAccount } from './wechat-login'
+import { installSkills } from './skills'
 
 export class Service {
   private store: Store
@@ -92,6 +93,16 @@ export class Service {
 
   start(): void {
     this.registerIpc()
+    // 安装内置 skills 到数据目录，供用户在 data/ 里跑 claude 自动发现。
+    // resources 路径：打包后在 process.resourcesPath；开发时在项目 resources/。
+    const resourcesSkills = app.isPackaged
+      ? join(process.resourcesPath, 'skills')
+      : join(app.getAppPath(), 'resources', 'skills')
+    try {
+      installSkills(this.paths, resourcesSkills)
+    } catch (e) {
+      console.error('installSkills failed:', (e as Error).message)
+    }
     // 注意：不启动任何自动轮询定时器。采集只由用户手动触发（source:refresh）。
   }
 

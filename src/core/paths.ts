@@ -9,6 +9,8 @@ export interface Paths {
   sources: string // data/sources.json
   secrets: string // data/secrets/
   wxAccounts: string // data/secrets/wx-accounts.enc
+  briefings: string // data/briefings/（agent skill 产出简报落这里）
+  skills: string // data/.claude/skills/（用户在 data 里跑 claude 时可发现的 skill）
 }
 
 export function makePaths(dataRoot: string): Paths {
@@ -19,6 +21,8 @@ export function makePaths(dataRoot: string): Paths {
     index: join(dataRoot, 'index.sqlite'),
     sources: join(dataRoot, 'sources.json'),
     secrets: join(dataRoot, 'secrets'),
-    wxAccounts: join(dataRoot, 'secrets', 'wx-accounts.enc')
+    wxAccounts: join(dataRoot, 'secrets', 'wx-accounts.enc'),
+    briefings: join(dataRoot, 'briefings'),
+    skills: join(dataRoot, '.claude', 'skills')
   }
 }

@@ -8,6 +8,28 @@
 
 复用成熟 CLI 的 agent 能力，我们只做"驱动 + 喂数据 + 收结果"。因为 [storage](storage.md) 是**文件为源**，`data/articles/` 就是普通 markdown 目录——任何通用 agent 在这个目录下 `cd` 进去就能 `grep`/读/写，天然可用。这是模块彻底解耦带来的红利。
 
+## ✅ Skill 机制定稿（2026-07-06，已实测跑通）
+
+**方向（用户确认）**：AI 处理不做成 App 硬编码功能，而是**Claude Code Skills**——
+App 只把数据存成文件 + 装好 skill，**用户自己在数据目录跑 `claude`**，agent 自动发现并用 skill 处理。
+App 不 spawn、不集成 CLI。这最契合"数据即文件、任何 agent 都能工作"。
+
+落地（已实测）：
+- skill = 一个目录 + `SKILL.md`（frontmatter `name`/`description`/`allowed-tools` + 指令正文）。
+- 放在 `data/.claude/skills/<name>/`，用户在 `data/` 跑 `claude` 时**自动发现**（按 description 匹配）。
+- App 启动时 `installSkills()` 把内置 skills（`resources/skills/`）复制进数据目录 + 写数据目录 README 引导。
+- 复用本机 claude 登录态，**无需 API key**；`--permission-mode acceptEdits` + skill 内 `allowed-tools` 限定只读写 data。
+- **首个 skill `summarize`**（`resources/skills/summarize/`）：读 articles、生成摘要+价值分(1-10)+标签，回写 frontmatter。
+  实测：真实文章 → 正确产出带实体的摘要、score=8、合理标签，回写文件成功。
+
+用法（用户）：
+```bash
+cd <userData>/data
+claude -p "用 summarize 技能给还没处理的文章生成摘要和价值打分" --permission-mode acceptEdits
+```
+
+后续 skill（简报/知识库）同法追加到 `resources/skills/`。`agent-cli.ts`（spawn 版）不再是主路径。
+
 ## ✅ 实测定稿（2026-07-06，以此为准）
 
 > 两轮调研有互相矛盾处，且部分被本机实测推翻。**最终以实测为准**：

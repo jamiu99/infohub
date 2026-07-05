@@ -8,15 +8,19 @@
 
 ```
 data/
+├── README.md                     # 引导用户在此跑 claude + skill（App 首启生成）
 ├── articles/                     # 文章正文与元数据（真相源）
 │   └── <sourceType>/<sourceId>/
 │       └── <articleId>.md        # frontmatter(YAML 元数据) + markdown 正文
+├── briefings/                    # agent skill 产出的简报
 ├── raw/                          # 原始采集载荷（溯源/重放用）
 │   └── <sourceType>/<sourceId>/<externalId>.json
+├── .claude/skills/               # 内置 AI 技能（用户在 data/ 跑 claude 时自动发现）
+│   └── summarize/SKILL.md        # 摘要+价值打分技能（App 首启从 resources/ 安装）
 ├── index.sqlite                  # 索引库（可从 articles/ 重建）
 ├── sources.json                  # 信源清单（Source[]）
-└── secrets/                      # 加密敏感数据（safeStorage）
-    └── wx-accounts.enc           # 公众号账号池（cookie/token 加密）
+└── secrets/                      # 敏感数据（safeStorage 加密；本机无 keychain 时明文，见 dev-log）
+    └── wx-accounts.enc           # 公众号账号池（cookie/token）
 ```
 
 ### 文章文件格式（`<articleId>.md`）
