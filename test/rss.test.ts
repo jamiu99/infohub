@@ -88,3 +88,28 @@ test('fetchFeed 失败返回 null', async () => {
   const fakeFetch = (async () => ({ ok: false })) as unknown as typeof fetch
   assert.equal(await fetchFeed('http://x', fakeFetch), null)
 })
+
+test('fetchText 超时后重试，最终成功', async () => {
+  const { fetchText } = await import('../src/core/ingest/net')
+  let calls = 0
+  const flaky = (async () => {
+    calls++
+    if (calls < 2) throw new Error('network timeout') // 第一次失败
+    return { ok: true, status: 200, text: async () => 'OK' }
+  }) as unknown as typeof fetch
+  const r = await fetchText('http://x', { fetchImpl: flaky, retries: 2 })
+  assert.equal(r, 'OK')
+  assert.equal(calls, 2) // 重试后成功
+})
+
+test('fetchText 4xx 不重试', async () => {
+  const { fetchText } = await import('../src/core/ingest/net')
+  let calls = 0
+  const notFound = (async () => {
+    calls++
+    return { ok: false, status: 404, text: async () => '' }
+  }) as unknown as typeof fetch
+  const r = await fetchText('http://x', { fetchImpl: notFound, retries: 3 })
+  assert.equal(r, null)
+  assert.equal(calls, 1) // 4xx 立即放弃，不重试
+})

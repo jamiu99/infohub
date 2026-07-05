@@ -1,5 +1,6 @@
 // RSS/Atom 解析（无三方依赖，正则解析常见结构）。公开抓取，无需鉴权/限流。
 import type { RawItem } from '../../shared/contract'
+import { fetchText } from './net'
 
 export interface RssEntry {
   title: string
@@ -73,17 +74,13 @@ export function parseFeed(xml: string): RssFeed {
   return { title: feedTitle, entries }
 }
 
-/** 拉取并解析一个 feed */
+/** 拉取并解析一个 feed（带超时+重试，容忍 feed 服务器不稳定） */
 export async function fetchFeed(feedUrl: string, fetchImpl: typeof fetch = fetch): Promise<RssFeed | null> {
-  try {
-    const res = await fetchImpl(feedUrl, {
-      headers: { 'user-agent': 'infohub/0.1 (+rss)', accept: 'application/rss+xml, application/xml, text/xml, */*' }
-    })
-    if (!res.ok) return null
-    return parseFeed(await res.text())
-  } catch {
-    return null
-  }
+  const xml = await fetchText(feedUrl, {
+    headers: { 'user-agent': 'infohub/0.1 (+rss)', accept: 'application/rss+xml, application/xml, text/xml, */*' },
+    fetchImpl
+  })
+  return xml ? parseFeed(xml) : null
 }
 
 export function entryToRawItem(sourceId: string, entry: RssEntry): RawItem {
