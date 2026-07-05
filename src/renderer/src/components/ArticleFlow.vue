@@ -77,27 +77,27 @@ header {
   justify-content: space-between;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
+  min-height: 52px;
 }
 h2 {
   margin: 0;
-  font-size: 15px;
+  font-size: 14px;
+  font-weight: 600;
 }
 .tools {
   display: flex;
   gap: 8px;
 }
 select {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--text);
-  padding: 4px;
+  width: auto;
+  padding: 5px 8px;
 }
 .progress {
-  padding: 6px 16px;
+  padding: 7px 16px;
   font-size: 12px;
-  background: var(--bg-sidebar);
-  color: var(--text-dim);
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
 }
 .list {
   list-style: none;
@@ -107,40 +107,48 @@ select {
 }
 .list li {
   display: flex;
-  gap: 8px;
-  padding: 11px 16px;
+  gap: 10px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   cursor: pointer;
+  transition: background 0.1s;
 }
 .list li:hover {
   background: var(--bg-hover);
 }
 .list li.active {
   background: var(--bg-active);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 .dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--unread);
-  margin-top: 5px;
+  margin-top: 6px;
   flex-shrink: 0;
 }
 .title {
-  line-height: 1.4;
+  line-height: 1.45;
+  color: var(--text-secondary);
 }
 .unread .title {
   font-weight: 600;
+  color: var(--text);
 }
 .meta {
   color: var(--text-dim);
   font-size: 12px;
-  margin-top: 3px;
+  margin-top: 4px;
 }
 .empty {
   text-align: center;
   color: var(--text-dim);
-  margin-top: 40px;
+  margin-top: 64px;
+  padding: 0 24px;
+}
+.empty p {
+  margin: 6px 0;
 }
 .hint {
   font-size: 12px;

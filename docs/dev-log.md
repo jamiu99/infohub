@@ -56,12 +56,12 @@ WSLg（Win11）自带显示；老 WSL 需装 X server 或用 WSLg。装完 `pnpm
   - 账号未触发 200013，鉴权三要素有效。
 - ⬜ UI 上手动搜号/加号/刷新的全流程点击验证（core 链路已证，IPC 层待点）。
 
-## ⚠️ 待修问题（联调发现）
+## 账号池存储（已决定：本地场景不修）
 
-- **账号池明文存储**：本 WSL 环境 `safeStorage.isEncryptionAvailable()` 为 false（无 OS keychain），
-  `secrets.ts` 走了明文兜底 → `wx-accounts.enc` 实为明文 JSON，含 cookie/token。
-  联调期可接受（data/ 已 gitignore、本地文件），但**上线前必须修**：
-  接入 keychain / DPAPI，或用用户口令派生密钥加密。已在 storage/wechat-login 安全约束中标记。
+- 现象：本 WSL 环境 `safeStorage.isEncryptionAvailable()` 为 false（无 OS keychain），`secrets.ts`
+  走明文兜底 → `wx-accounts.enc` 实为明文 JSON，含 cookie/token。
+- **决定（用户 2026-07-06）**：本地个人使用，明文可接受，**不修**。`data/` 已 gitignore、不入库。
+  若未来要多设备同步/分发，再接 keychain/DPAPI/口令派生密钥。
 
 ## 已知待补（非阻塞）
 

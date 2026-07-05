@@ -19,7 +19,7 @@ onMounted(() => void store.init())
 <style scoped>
 .app {
   display: grid;
-  grid-template-columns: 260px minmax(300px, 1fr) minmax(360px, 1.4fr);
+  grid-template-columns: 248px minmax(320px, 0.9fr) minmax(420px, 1.5fr);
   height: 100vh;
   overflow: hidden;
 }
@@ -35,5 +35,9 @@ onMounted(() => void store.init())
 }
 .col-flow {
   border-right: 1px solid var(--border);
+  background: var(--bg);
+}
+.col-detail {
+  background: var(--bg);
 }
 </style>

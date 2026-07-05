@@ -57,21 +57,37 @@ function dot(sourceId: string): string {
   height: 100%;
 }
 .brand {
-  font-weight: 700;
-  font-size: 16px;
-  padding: 14px 14px 8px;
+  font-weight: 650;
+  font-size: 14px;
+  letter-spacing: 0.2px;
+  padding: 14px 16px 10px;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.brand::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  background: var(--accent);
 }
 .all,
 .list li {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 14px;
+  gap: 9px;
+  margin: 1px 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
+  color: var(--text-secondary);
 }
 .all {
-  font-weight: 600;
+  font-weight: 550;
   justify-content: space-between;
+  color: var(--text);
 }
 .all:hover,
 .list li:hover {
@@ -80,16 +96,17 @@ function dot(sourceId: string): string {
 .all.active,
 .list li.active {
   background: var(--bg-active);
+  color: var(--text);
 }
 .list {
   list-style: none;
-  margin: 4px 0;
+  margin: 2px 0;
   padding: 0;
   overflow-y: auto;
 }
 .dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
 }
@@ -98,7 +115,7 @@ function dot(sourceId: string): string {
 }
 .dot.read {
   background: transparent;
-  border: 1px solid var(--text-dim);
+  border: 1.5px solid var(--border-strong);
 }
 .dot.warn {
   background: var(--warn);
@@ -110,23 +127,41 @@ function dot(sourceId: string): string {
   text-overflow: ellipsis;
 }
 .badge {
-  background: var(--unread);
-  color: #fff;
-  border-radius: 10px;
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  border-radius: 9px;
   font-size: 11px;
-  padding: 0 6px;
+  font-weight: 550;
+  padding: 1px 7px;
   min-width: 18px;
   text-align: center;
+}
+.active .badge,
+.list li.active .badge {
+  background: var(--accent);
+  color: #fff;
 }
 .refresh {
   border: none;
   background: none;
-  padding: 0 4px;
-  font-size: 15px;
+  padding: 2px 5px;
+  font-size: 14px;
+  color: var(--text-dim);
+  border-radius: var(--radius-sm);
+}
+.refresh:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }
 .add {
-  margin: 6px 14px;
-  color: var(--text-dim);
+  margin: 6px 12px 10px;
+  color: var(--text-secondary);
+  border-style: dashed;
+  background: transparent;
+}
+.add:hover {
+  color: var(--text);
+  border-color: var(--accent);
 }
 .spacer {
   flex: 1;

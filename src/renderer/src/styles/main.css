@@ -1,26 +1,54 @@
+/* 设计系统 —— 现代简约 / 类 Linear。
+   中性灰阶为主、克制的强调色、清晰的字体层级与间距刻度。 */
 :root {
+  /* 中性灰阶（浅色） */
   --bg: #ffffff;
-  --bg-sidebar: #f7f7f8;
-  --bg-hover: #ececed;
-  --bg-active: #e3ecfb;
-  --border: #e2e2e5;
-  --text: #1c1c1e;
-  --text-dim: #8a8a8e;
-  --accent: #2f6feb;
-  --unread: #2f6feb;
+  --bg-sidebar: #fbfbfc;
+  --bg-elevated: #ffffff;
+  --bg-hover: #f4f4f5;
+  --bg-active: #eef2fb;
+  --bg-subtle: #f7f7f8;
+  --border: #ececee;
+  --border-strong: #dcdce0;
+  --text: #17171a;
+  --text-secondary: #55555c;
+  --text-dim: #9b9ba1;
+  /* 强调与语义色 */
+  --accent: #5b6cff;
+  --accent-hover: #4a5ae8;
+  --accent-soft: #eef0ff;
+  --unread: #5b6cff;
+  --ok: #2fa96b;
   --warn: #e0563b;
   --cooldown: #d99a2b;
-  --ok: #34a853;
+  /* 刻度 */
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.1);
+  --font: -apple-system, "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC",
+    "Microsoft YaHei", "WenQuanYi Micro Hei", system-ui, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1b1b1d;
-    --bg-sidebar: #242427;
-    --bg-hover: #303034;
-    --bg-active: #2b3a55;
-    --border: #37373b;
+    --bg: #161619;
+    --bg-sidebar: #1b1b1f;
+    --bg-elevated: #202024;
+    --bg-hover: #26262b;
+    --bg-active: #262b45;
+    --bg-subtle: #1e1e22;
+    --border: #2a2a30;
+    --border-strong: #3a3a42;
     --text: #ececee;
-    --text-dim: #9a9a9f;
+    --text-secondary: #b4b4bc;
+    --text-dim: #77777f;
+    --accent: #7885ff;
+    --accent-hover: #8e99ff;
+    --accent-soft: #23273f;
+    --unread: #7885ff;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 6px 24px rgba(0, 0, 0, 0.45);
   }
 }
 * {
@@ -30,42 +58,72 @@ html,
 body {
   margin: 0;
   height: 100%;
-  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
-    "Noto Sans SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
-  font-size: 14px;
+  font-family: var(--font);
+  font-size: 13.5px;
+  line-height: 1.5;
   color: var(--text);
   background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 button {
   font: inherit;
   cursor: pointer;
-  border: 1px solid var(--border);
-  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
   color: var(--text);
-  border-radius: 6px;
-  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  padding: 5px 11px;
+  transition: background 0.12s, border-color 0.12s;
 }
 button:hover {
   background: var(--bg-hover);
+}
+button:active {
+  transform: translateY(0.5px);
 }
 button.primary {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
 }
-input {
+button.primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+input,
+select {
   font: inherit;
   padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
   color: var(--text);
   width: 100%;
+  outline: none;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+input:focus,
+select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 9px;
+  height: 9px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 4px;
+  background: var(--border-strong);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+  background-clip: padding-box;
+  border: 2px solid transparent;
 }
