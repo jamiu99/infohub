@@ -49,7 +49,7 @@
 - ✅ 数据契约锁定（RawItem / Article / Source）→ `src/shared/contract.ts` · [contract.md](contract.md)
 - ✅ ingest 接口 + wechat adapter → `src/core/ingest/` · [ingest.md](ingest.md)
 - ✅ store 落地（文件布局 + SQLite schema，往返测试通过） → `src/core/store/` · [storage.md](storage.md)
-- ⬜ Agent CLI 接入最小验证（驱动 claude -p 读目录产出摘要） → [agent.md](agent.md)
+- 🟡 Agent CLI 接入：探索性实现已本机跑通（`src/main/agent-cli.ts`），但**集成方式调研中，未接入主流程** → [agent.md](agent.md)
 - ⬜ RSS adapter（P0 原定链路，公众号优先，暂缓）
 
 ### P1 — 公众号监控（★ 当前主线，几十个号量级）
@@ -57,12 +57,19 @@
 - ✅ 扫码登录 BrowserWindow + cookie/token 抓取 → `src/main/wechat-login.ts` · [wechat-login.md](wechat-login.md)
 - ✅ 采集核心：searchbiz + appmsg，复用 refs 接口 → `src/core/ingest/wechat.ts` · [ingest.md](ingest.md#微信公众号)
 - ✅ 多账号池 + 配额/限流调度器（200013，轮换/冷却/窗口滚动） → `src/core/agent/account-pool.ts`
-- ✅ 关注列表 + 定时轮询 + 手动刷新 → `src/core/agent/poller.ts` + `src/main/service.ts`
+- ✅ 关注列表 + 手动刷新（**已关闭自动轮询**，见下安全约束） → `src/main/service.ts`
 - ✅ 三栏监控 UI（源列表/文章流/详情） → `src/renderer/src/components/`
 - ✅ 配额可视化 + 登录失效引导 UX → `QuotaPanel.vue`
 - ✅ cookie 失效状态机 + 扫码引导 → account-pool + relogin IPC
 - ✅ 正文抓取（抓 link 页面 → #js_content → markdown） → `src/core/process/content.ts`
-- ⬜ 真机联调：实际扫码 → 搜号 → 采集验证（需人工扫码，见 dev-log）
+- ✅ **安全加固**：关自动轮询（纯手动）+ 采集全局串行锁 + 频率压到极保守（20/时·10s 间隔·单次1页）
+- 🟡 真机联调：已扫 1 个账号（成功落盘）；搜号/采集待验证。**联调期禁止并发、禁止拿真号压测**
+- ⬜ **多账号切换 bug**：用户反馈"有些账号要先登进去点切换才能换号"——调研中，见 [wechat-login.md](wechat-login.md)
+
+### 安全约束（应 jamiu 要求，硬性）
+- **默认不自动采集**：无定时轮询，只在用户手动点刷新时发请求。
+- **全局串行**：`Collector` 有互斥锁，任何时刻只有一个 wechat 请求链，UI 连点也排队。
+- **极保守频率**：联调期 `rate-limit.ts` 压到远低于实测上限，保护真实账号。
 
 ### P2 — 简报
 - ⬜ 入库 pipeline（清洗/摘要/打分） → [process.md](process.md)

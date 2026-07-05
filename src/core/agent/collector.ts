@@ -20,6 +20,10 @@ export interface CollectResult {
 
 export class Collector {
   private wait: (ms: number) => Promise<void>
+  // 全局串行锁（安全约束）：任何时刻只允许一个 wechat 请求链在跑，杜绝并发打爆账号。
+  // 所有对外入口都经 runExclusive 排队，即使 UI 连点也不会并发。
+  private chain: Promise<unknown> = Promise.resolve()
+
   constructor(
     private pool: AccountPool,
     private store: Store,
@@ -28,23 +32,40 @@ export class Collector {
     this.wait = opts.sleep ?? sleep
   }
 
-  /** 搜索公众号（吃一次配额，自动换号重试） */
-  async search(query: string): Promise<WxSearchResult[]> {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const account = this.pool.pick()
-      if (!account) return []
-      const r = await searchBiz(account, query)
-      this.pool.noteRequest(account.id)
-      if (r.ok) return r.data
-      const { retry } = this.pool.handleResult(account.id, r)
-      if (!retry) return []
-      await this.wait(RATE_LIMIT.accountIntervalMs)
-    }
-    return []
+  /** 把任务排到串行链尾，保证全局互斥执行 */
+  private runExclusive<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.chain.then(task, task)
+    // 无论成功失败都让链继续（吞掉错误只为解锁，不影响 run 的真实结果）
+    this.chain = run.then(
+      () => undefined,
+      () => undefined
+    )
+    return run
   }
 
-  /** 增量抓取单个公众号：翻页直到遇到已见文章或达页数上限 */
-  async collectSource(source: Source, maxPages = RATE_LIMIT.incrementalMaxPages): Promise<CollectResult> {
+  /** 搜索公众号（吃一次配额，自动换号重试）。全局串行。 */
+  search(query: string): Promise<WxSearchResult[]> {
+    return this.runExclusive(async () => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const account = this.pool.pick()
+        if (!account) return []
+        const r = await searchBiz(account, query)
+        this.pool.noteRequest(account.id)
+        if (r.ok) return r.data
+        const { retry } = this.pool.handleResult(account.id, r)
+        if (!retry) return []
+        await this.wait(RATE_LIMIT.accountIntervalMs)
+      }
+      return []
+    })
+  }
+
+  /** 增量抓取单个公众号（全局串行入口） */
+  collectSource(source: Source, maxPages = RATE_LIMIT.incrementalMaxPages): Promise<CollectResult> {
+    return this.runExclusive(() => this.collectSourceImpl(source, maxPages))
+  }
+
+  private async collectSourceImpl(source: Source, maxPages: number): Promise<CollectResult> {
     const fakeid = (source.config as { fakeid?: string }).fakeid
     if (!fakeid) return { sourceId: source.id, newArticles: 0, status: 'error', message: '缺少 fakeid' }
 

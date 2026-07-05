@@ -30,7 +30,8 @@ html,
 body {
   margin: 0;
   height: 100%;
-  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
+    "Noto Sans SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
   font-size: 14px;
   color: var(--text);
   background: var(--bg);

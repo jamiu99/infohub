@@ -1,4 +1,6 @@
-// 主服务：装配 store / 账号池 / collector / poller，注册 IPC，管理定时轮询。
+// 主服务：装配 store / 账号池 / collector / poller，注册 IPC。
+// 安全约束（应 jamiu 要求）：默认【不】自动轮询，只在用户手动点刷新时采集，
+// 且采集全局串行（见 Collector 的锁），杜绝并发请求影响真实账号。
 import { ipcMain, BrowserWindow, app } from 'electron'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -6,24 +8,17 @@ import { makePaths } from '../core/paths'
 import { Store } from '../core/store'
 import { AccountPool } from '../core/agent/account-pool'
 import { Collector } from '../core/agent/collector'
-import { Poller } from '../core/agent/poller'
 import { IPC } from '../shared/ipc'
-import type { IngestProgress } from '../shared/ipc'
 import type { Source } from '../shared/contract'
 import type { WxSearchResult } from '../shared/wechat'
 import { saveAccounts, loadAccounts } from './secrets'
 import { openWechatLogin, makeAccount } from './wechat-login'
 
-const AUTO_POLL_INTERVAL_MS = 3 * 60 * 60 * 1000 // 每 3 小时自动轮询一轮
-
 export class Service {
   private store: Store
   private pool: AccountPool
   private collector: Collector
-  private poller: Poller
   private paths = makePaths(join(app.getPath('userData'), 'data'))
-  private pollTimer?: NodeJS.Timeout
-  private nextRunAt?: number
 
   constructor() {
     this.store = new Store(this.paths)
@@ -32,9 +27,6 @@ export class Service {
       onChange: () => this.broadcast('accounts-changed')
     })
     this.collector = new Collector(this.pool, this.store)
-    this.poller = new Poller(this.collector, this.pool, {
-      onProgress: (p) => this.broadcast('ingest-progress', p)
-    })
   }
 
   private broadcast(channel: string, ...args: unknown[]): void {
@@ -43,18 +35,7 @@ export class Service {
 
   start(): void {
     this.registerIpc()
-    this.scheduleAutoPoll()
-  }
-
-  private scheduleAutoPoll(): void {
-    this.nextRunAt = Date.now() + AUTO_POLL_INTERVAL_MS
-    this.pollTimer = setInterval(() => void this.runPoll(), AUTO_POLL_INTERVAL_MS)
-  }
-
-  private async runPoll(): Promise<void> {
-    this.nextRunAt = Date.now() + AUTO_POLL_INTERVAL_MS
-    const r = await this.poller.runOnce(this.store.listSources(), this.nextRunAt)
-    if (r.total > 0) this.broadcast('articles-changed')
+    // 注意：不启动任何自动轮询定时器。采集只由用户手动触发（source:refresh）。
   }
 
   private registerIpc(): void {
@@ -120,6 +101,6 @@ export class Service {
   }
 
   stop(): void {
-    if (this.pollTimer) clearInterval(this.pollTimer)
+    // 无定时器需清理；采集是手动一次性的。保留方法供 main 在退出时调用。
   }
 }
