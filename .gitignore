@@ -1,0 +1,8 @@
+node_modules/
+dist/
+out/
+.DS_Store
+*.log
+
+# 运行时数据：文件为源的数据、索引库、加密的账号池——都不入库
+data/
