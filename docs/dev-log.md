@@ -26,9 +26,19 @@
 pnpm install          # 装依赖（含 electron 二进制）
 pnpm typecheck        # 类型检查 main + renderer
 pnpm build            # 构建（out/）
-pnpm test:core        # 核心逻辑单测（tsx + node:test），12 项
+pnpm test:core        # 核心逻辑单测（tsx + node:test），17 项
 ./start.sh            # tmux 里跑 electron-vite dev（不在 CC 会话起）
 ```
+
+### WSL 前置：Electron GUI 系统库
+
+WSL/纯 Linux 首次跑 Electron 需补 GUI 依赖库（否则报 `libnss3.so: cannot open shared object file`）：
+
+```bash
+sudo apt-get install -y libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libgbm1 libgtk-3-0 libasound2t64
+```
+
+WSLg（Win11）自带显示；老 WSL 需装 X server 或用 WSLg。装完 `pnpm dev` 即可出窗口。
 
 ## 已验证（自动化）
 
