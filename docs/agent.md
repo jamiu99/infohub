@@ -28,7 +28,11 @@ cd <userData>/data
 claude -p "用 summarize 技能给还没处理的文章生成摘要和价值打分" --permission-mode acceptEdits
 ```
 
-后续 skill（简报/知识库）同法追加到 `resources/skills/`。`agent-cli.ts`（spawn 版）不再是主路径。
+- **第二个 skill `briefing`**（`resources/skills/briefing/`）：读近期文章→价值排序→去重→软文剔除→
+  分类 + 每条「为什么重要」+ TL;DR，写 `briefings/<日期>.md`。实测：正确出头条、剔除广告软文、
+  写出洞察式总览。方法论见 [briefing.md](briefing.md)。
+
+后续 skill（知识库/实体抽取）同法追加到 `resources/skills/`。`agent-cli.ts`（spawn 版）不再是主路径。
 
 ## ✅ 实测定稿（2026-07-06，以此为准）
 

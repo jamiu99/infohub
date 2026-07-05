@@ -78,9 +78,10 @@
 方向：不做 App 硬编码功能，做成 **Claude Code Skills**——用户在数据目录自己跑 `claude`，agent 自动发现并处理。见 [agent.md](agent.md#-skill-机制定稿2026-07-06已实测跑通)。
 - ✅ 调研 skill 机制 + 实测跑通闭环
 - ✅ **summarize skill**（摘要+价值打分+标签，回写 frontmatter）——真实文章验证通过
+- ✅ **briefing skill**（读近期文章→价值排序→软文剔除→分类+「为什么重要」→写 briefings/）——真机验证：正确出头条/剔广告/写洞察式 TL;DR
 - ✅ App 首启安装内置 skills 到 `data/.claude/skills/` + 写数据目录 README 引导
-- ⬜ 后续 skill：每日简报（读文章→排序→生成到 briefings/）、知识库索引
-- 简报方法论沉淀见 [briefing.md](briefing.md)（作为写 briefing skill 时的参考）
+- ⬜ 后续 skill：知识库索引 / 实体抽取
+- 简报方法论沉淀见 [briefing.md](briefing.md)
 
 ### P3 — 知识库 / Wiki
 - ⬜ 全文检索（SQLite FTS5）+ 向量检索
