@@ -1,32 +1,44 @@
 <script setup lang="ts">
-// 添加公众号：输入名 → searchbiz 搜索 → 选中加入。见 docs/wechat-monitor.md#三添加公众号流程。
-import { ref } from 'vue'
+// 添加信源：选类型（公众号/RSS）→ 搜索/试探 → 选中加入。见 docs/ingest.md。
+import { ref, computed } from 'vue'
 import { store } from '../stores/app'
-import type { WxSearchResult } from '../../../shared/wechat'
+import type { DiscoverResult } from '../../../shared/contract'
 
 const emit = defineEmits<{ close: [] }>()
+const type = ref<'wechat' | 'rss'>('wechat')
 const query = ref('')
-const results = ref<WxSearchResult[]>([])
+const results = ref<DiscoverResult[]>([])
 const searching = ref(false)
-const adding = ref('')
+const adding = ref(-1)
+
+const placeholder = computed(() =>
+  type.value === 'wechat' ? '输入公众号名称（可粘贴）' : '粘贴 RSS/Atom 订阅地址（http…）'
+)
+const needAccount = computed(() => type.value === 'wechat' && !store.state.accounts.length)
 
 async function doSearch(): Promise<void> {
   if (!query.value.trim()) return
   searching.value = true
   try {
-    results.value = await store.search(query.value.trim())
+    results.value = await store.search(type.value, query.value.trim())
   } finally {
     searching.value = false
   }
 }
 
-async function add(r: WxSearchResult): Promise<void> {
-  adding.value = r.fakeid
+function switchType(t: 'wechat' | 'rss'): void {
+  type.value = t
+  results.value = []
+  query.value = ''
+}
+
+async function add(r: DiscoverResult, i: number): Promise<void> {
+  adding.value = i
   try {
-    await store.addSource(r)
+    await store.addSource(type.value, r)
     emit('close')
   } finally {
-    adding.value = ''
+    adding.value = -1
   }
 }
 </script>
@@ -34,23 +46,29 @@ async function add(r: WxSearchResult): Promise<void> {
 <template>
   <div class="mask" @click.self="emit('close')">
     <div class="dialog">
-      <h3>添加公众号</h3>
+      <h3>添加信源</h3>
+      <div class="tabs">
+        <button :class="{ on: type === 'wechat' }" @click="switchType('wechat')">公众号</button>
+        <button :class="{ on: type === 'rss' }" @click="switchType('rss')">RSS</button>
+      </div>
       <div class="search-row">
-        <input v-model="query" placeholder="输入公众号名称" @keyup.enter="doSearch" />
+        <input v-model="query" :placeholder="placeholder" @keyup.enter="doSearch" />
         <button class="primary" :disabled="searching" @click="doSearch">
-          {{ searching ? '搜索中…' : '搜索' }}
+          {{ searching ? '查找中…' : type === 'wechat' ? '搜索' : '解析' }}
         </button>
       </div>
-      <p v-if="!store.state.accounts.length" class="hint">需先登录一个账号才能搜索。</p>
+      <p v-if="needAccount" class="hint">需先登录一个账号才能搜索公众号。</p>
       <ul class="results">
-        <li v-for="r in results" :key="r.fakeid">
-          <img v-if="r.roundHeadImg" :src="r.roundHeadImg" class="avatar" />
+        <li v-for="(r, i) in results" :key="i">
+          <img v-if="r.meta?.roundHeadImg" :src="(r.meta.roundHeadImg as string)" class="avatar" />
           <div class="info">
-            <div class="nick">{{ r.nickname }}</div>
-            <div class="sig">{{ r.signature || r.alias }}</div>
+            <div class="nick">{{ r.name }}</div>
+            <div class="sig">
+              {{ (r.meta?.signature as string) || (r.meta?.entries ? `${r.meta.entries} 条` : '') }}
+            </div>
           </div>
-          <button :disabled="adding === r.fakeid" @click="add(r)">
-            {{ adding === r.fakeid ? '添加中…' : '关注' }}
+          <button :disabled="adding === i" @click="add(r, i)">
+            {{ adding === i ? '添加中…' : '关注' }}
           </button>
         </li>
       </ul>
@@ -80,6 +98,20 @@ async function add(r: WxSearchResult): Promise<void> {
 }
 h3 {
   margin: 0 0 12px;
+}
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.tabs button {
+  border-radius: 999px;
+  padding: 4px 14px;
+}
+.tabs button.on {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }
 .search-row {
   display: flex;

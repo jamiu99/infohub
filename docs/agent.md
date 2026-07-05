@@ -8,7 +8,26 @@
 
 复用成熟 CLI 的 agent 能力，我们只做"驱动 + 喂数据 + 收结果"。因为 [storage](storage.md) 是**文件为源**，`data/articles/` 就是普通 markdown 目录——任何通用 agent 在这个目录下 `cd` 进去就能 `grep`/读/写，天然可用。这是模块彻底解耦带来的红利。
 
-## 📋 调研结论（2026-07-06，接入前必读）
+## ✅ 实测定稿（2026-07-06，以此为准）
+
+> 两轮调研有互相矛盾处，且部分被本机实测推翻。**最终以实测为准**：
+>
+> **决定：主接入走 spawn `claude -p --output-format json`，不走 SDK / 不配 API key。**
+>
+> 实测事实（在本机 `claude` 2.1.201、**未设 ANTHROPIC_API_KEY**）：
+> - `claude -p "读当前目录 .md 生成简报" --output-format json`（cwd=数据目录）**直接跑通**，
+>   自主 Read 文件、产出简报，`.result` 即最终文本，`stop_reason: end_turn`。
+> - **复用本机 CLI 登录态（订阅版），用户零配置、无需 API key** —— 这是选 spawn 而非 SDK 的决定性理由。
+> - 返回 JSON 含 `total_cost_usd` / `usage`，成本可读。用的是 `claude-opus-4-8`。
+>
+> 为何不用 `@anthropic-ai/claude-agent-sdk`：SDK 走 `ANTHROPIC_API_KEY` 按 token 计费，
+> 要用户单独配 key、数据/计费走 API 通道；而 spawn CLI 复用现成登录态，对本地个人工具最省心。
+> SDK 作为未来可选（若要同进程/类型安全再切）。
+>
+> stream-json 解析那套（NDJSON/text_delta 累积）仅在需要**流式 UI**时才用；简报是一次性产物，
+> 用 `--output-format json` 取 `.result` 最简单，**无需累积 delta**。
+
+## 📋 调研结论（官方文档，部分已被上方实测修正）
 
 上网调研（官方文档）后的关键结论，**修正了初版探索代码的多处错误假设**：
 

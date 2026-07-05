@@ -47,10 +47,10 @@
 ### P0 — Agent 框架 + 信源契约
 - ✅ 项目骨架 + 文档体系（electron-vite + Vue3 + TS，typecheck/build 通过）
 - ✅ 数据契约锁定（RawItem / Article / Source）→ `src/shared/contract.ts` · [contract.md](contract.md)
-- ✅ ingest 接口 + wechat adapter → `src/core/ingest/` · [ingest.md](ingest.md)
+- ✅ **SourceAdapter 抽象**：统一采集接口 + 注册表，collector 面向接口，信源专属逻辑封装在各 adapter → [ingest.md](ingest.md)
+- ✅ **wechat adapter**（账号池+限流内封）+ **rss adapter**（公开抓取，真实 HN feed 验证通过）
 - ✅ store 落地（文件布局 + SQLite schema，往返测试通过） → `src/core/store/` · [storage.md](storage.md)
-- 🟡 Agent CLI 接入：探索性实现已本机跑通（`src/main/agent-cli.ts`），但**集成方式调研中，未接入主流程** → [agent.md](agent.md)
-- ⬜ RSS adapter（P0 原定链路，公众号优先，暂缓）
+- 🟡 Agent CLI 接入：探索性实现已本机跑通（`src/main/agent-cli.ts`），实测定稿走 spawn（见 agent.md），未接入主流程
 
 ### P1 — 公众号监控（★ 当前主线，几十个号量级）
 产品形态/UI/UX/调度见 [wechat-monitor.md](wechat-monitor.md)。**核心链路已实现并通过 12 项测试。**
@@ -74,9 +74,11 @@
 - **全局串行**：`Collector` 有互斥锁，任何时刻只有一个 wechat 请求链，UI 连点也排队。
 - **极保守频率**：联调期 `rate-limit.ts` 压到远低于实测上限，保护真实账号。
 
-### P2 — 简报
-- ⬜ 入库 pipeline（清洗/摘要/打分） → [process.md](process.md)
-- ⬜ 每日简报生成 + 系统通知
+### P2 — 简报（调研完成，方案定稿，待用户确认）
+- ✅ 调研 + 实测定稿：技术底座 spawn `claude -p`（复用登录态零配置）+ 简报方法论 → [briefing.md](briefing.md)
+- ⬜ MVP：spawn claude 一步生成简报（读文章 → 排序 → 摘要 → 结构化产出）
+- ⬜ 简报落文件 `data/briefings/` + UI 简报视图
+- ⬜ 演进（按需）：预排序 / 语义去重 / 软文过滤
 
 ### P3 — 知识库 / Wiki
 - ⬜ 全文检索（SQLite FTS5）+ 向量检索
@@ -98,6 +100,7 @@
 | [storage.md](storage.md) | 存储：文件布局 + SQLite 索引 schema |
 | [agent.md](agent.md) | AI 基建：CLI 集成、stream-json、自我修改约束 |
 | [decisions.md](decisions.md) | 决策日志（ADR）：为什么这么选 |
+| [briefing.md](briefing.md) | 每日简报（P2）设计：技术底座 + 方法论 + MVP 方案 |
 | [dev-log.md](dev-log.md) | 开发日志 & 代码地图（文档↔实现映射、如何运行/测试） |
 
 ## 6. 未决待定项

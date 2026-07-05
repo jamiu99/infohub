@@ -1,4 +1,4 @@
-// 主服务：装配 store / 账号池 / collector / poller，注册 IPC。
+// 主服务：装配 store / 账号池 / adapter 注册表 / collector，注册 IPC。
 // 安全约束（应 jamiu 要求）：默认【不】自动轮询，只在用户手动点刷新时采集，
 // 且采集全局串行（见 Collector 的锁），杜绝并发请求影响真实账号。
 import { ipcMain, BrowserWindow, app } from 'electron'
@@ -8,9 +8,14 @@ import { makePaths } from '../core/paths'
 import { Store } from '../core/store'
 import { AccountPool } from '../core/agent/account-pool'
 import { Collector } from '../core/agent/collector'
+import { AdapterRegistry } from '../core/ingest/adapter'
+import { WechatAdapter } from '../core/ingest/wechat-adapter'
+import { RssAdapter } from '../core/ingest/rss-adapter'
+import '../core/process/wechat' // 自注册 wechat normalizer
+import '../core/process/rss' // 自注册 rss normalizer
 import { IPC } from '../shared/ipc'
 import type { Source } from '../shared/contract'
-import type { WxSearchResult } from '../shared/wechat'
+import type { DiscoverResult } from '../core/ingest/adapter'
 import { saveAccounts, loadAccounts } from './secrets'
 import { openWechatLogin, makeAccount } from './wechat-login'
 
@@ -18,6 +23,7 @@ export class Service {
   private store: Store
   private pool: AccountPool
   private collector: Collector
+  private registry: AdapterRegistry
   private paths = makePaths(join(app.getPath('userData'), 'data'))
 
   constructor() {
@@ -26,11 +32,27 @@ export class Service {
       persist: (a) => saveAccounts(this.paths.wxAccounts, a),
       onChange: () => this.broadcast('accounts-changed')
     })
-    this.collector = new Collector(this.pool, this.store)
+    // 注册各信源 adapter（加新信源只需在这里多注册一个）
+    this.registry = new AdapterRegistry()
+    this.registry.register(new WechatAdapter(this.pool))
+    this.registry.register(new RssAdapter())
+    this.collector = new Collector(this.registry, this.store)
   }
 
   private broadcast(channel: string, ...args: unknown[]): void {
     for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, ...args)
+  }
+
+  /** 由 type + config 派生稳定 source id（wechat 用 fakeid、rss 用 feedUrl 哈希） */
+  private makeSourceId(type: string, result: DiscoverResult): string {
+    const c = result.config as { fakeid?: string; feedUrl?: string }
+    if (type === 'wechat' && c.fakeid) return `wx-${c.fakeid}`
+    if (type === 'rss' && c.feedUrl) {
+      let h = 0
+      for (let i = 0; i < c.feedUrl.length; i++) h = (h * 31 + c.feedUrl.charCodeAt(i)) | 0
+      return `rss-${(h >>> 0).toString(36)}`
+    }
+    return `${type}-${randomUUID().slice(0, 8)}`
   }
 
   /** 后台采集一个源：广播进度（polling→idle），完成后刷新文章流。不阻塞调用方。 */
@@ -97,22 +119,21 @@ export class Service {
 
     // —— 信源 ——
     ipcMain.handle(IPC.sourceList, () => this.store.listSources())
-    ipcMain.handle(IPC.sourceSearch, (_e, q: string) => this.collector.search(q))
-    ipcMain.handle(IPC.sourceAdd, async (_e, result: WxSearchResult) => {
+    ipcMain.handle(IPC.sourceSearch, (_e, type: string, q: string) => this.collector.discover(type, q))
+    ipcMain.handle(IPC.sourceAdd, async (_e, type: string, result: DiscoverResult) => {
       const sources = this.store.listSources()
       const source: Source = {
-        id: `wx-${result.fakeid}`,
-        type: 'wechat',
-        name: result.nickname,
+        id: this.makeSourceId(type, result),
+        type,
+        name: result.name,
         enabled: true,
-        config: { fakeid: result.fakeid, alias: result.alias, signature: result.signature }
+        config: result.config
       }
       if (!sources.find((s) => s.id === source.id)) {
         sources.push(source)
         this.store.saveSources(sources)
       }
       // 立即返回（关注瞬间生效，UI 秒关弹窗）；首次采集放后台异步跑，完成再广播刷新。
-      // 采集耗时（逐篇抓正文 + 限流间隔可达十几秒），不能阻塞点击反馈。
       void this.collectInBackground(source)
       return source
     })

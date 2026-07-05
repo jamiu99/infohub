@@ -11,6 +11,13 @@ export interface Source {
   lastFetchedAt?: number
 }
 
+/** 信源发现候选（搜索公众号 / 试探 RSS feed 的结果），跨进程传给 UI */
+export interface DiscoverResult {
+  config: Record<string, unknown> // 建 Source 用（wechat: fakeid; rss: feedUrl）
+  name: string
+  meta?: Record<string, unknown> // 展示用（头像/签名/条目数）
+}
+
 /** 原始采集产物（未清洗），ingest 层唯一输出 */
 export interface RawItem {
   sourceId: string

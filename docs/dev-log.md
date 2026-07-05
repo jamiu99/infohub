@@ -7,8 +7,8 @@
 | 文档 | 实现文件 |
 |------|----------|
 | [contract.md](contract.md) | `src/shared/contract.ts`（Source/RawItem/Article）、`src/shared/wechat.ts`（账号/搜索）、`src/shared/ipc.ts`（IPC 契约） |
-| [ingest.md](ingest.md) | `src/core/ingest/wechat.ts`（searchbiz + appmsg + toRawItem） |
-| [process.md](process.md) | `src/core/process/wechat.ts`（归一化阶段1）、`process/content.ts`（阶段2 正文抓取 HTML→md） |
+| [ingest.md](ingest.md) | `ingest/adapter.ts`（SourceAdapter 接口 + 注册表）、`ingest/wechat.ts`+`wechat-adapter.ts`（公众号）、`ingest/rss.ts`+`rss-adapter.ts`（RSS） |
+| [process.md](process.md) | `process/normalize.ts`（按 type 的归一化注册表）、`process/wechat.ts`、`process/rss.ts`、`process/content.ts`（HTML→md） |
 | [storage.md](storage.md) | `src/core/store/index.ts`（Store）、`store/markdown.ts`（frontmatter 序列化）、`core/paths.ts` |
 | [wechat-login.md](wechat-login.md) | `src/main/wechat-login.ts`（BrowserWindow 扫码）、`src/core/agent/account-pool.ts`（池+调度）、`agent/rate-limit.ts`、`src/main/secrets.ts`（safeStorage 加密） |
 | [wechat-monitor.md](wechat-monitor.md) | `src/core/agent/collector.ts`（编排）、`agent/poller.ts`（轮询）、`src/main/service.ts`（装配+IPC+定时）、`src/renderer/src/`（三栏 UI） |

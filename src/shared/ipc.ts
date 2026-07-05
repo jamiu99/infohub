@@ -1,8 +1,8 @@
 // IPC 契约：renderer 通过 preload 暴露的 window.api 调用 main。
 // 单一事实来源，preload 与 renderer 类型都从这里取。
 
-import type { Source, Article } from './contract'
-import type { WxAccountView, WxSearchResult } from './wechat'
+import type { Source, Article, DiscoverResult } from './contract'
+import type { WxAccountView } from './wechat'
 
 /** 轮询/采集进度事件（main → renderer 推送） */
 export interface IngestProgress {
@@ -24,13 +24,13 @@ export interface InfohubApi {
     relogin(accountId: string): Promise<WxAccountView[]>
     remove(accountId: string): Promise<void>
   }
-  // —— 信源（关注的公众号）——
+  // —— 信源（关注的公众号 / RSS / …）——
   source: {
     list(): Promise<Source[]>
-    /** 搜索公众号（searchbiz） */
-    search(query: string): Promise<WxSearchResult[]>
-    /** 添加关注并立即抓取 */
-    add(result: WxSearchResult): Promise<Source>
+    /** 发现信源：wechat 按名搜、rss 试探 feed URL。返回统一候选 */
+    search(type: string, query: string): Promise<DiscoverResult[]>
+    /** 添加关注并后台采集。type 决定信源类型 */
+    add(type: string, result: DiscoverResult): Promise<Source>
     remove(sourceId: string): Promise<void>
     /** 手动刷新单个号或全部（传 undefined 刷全部） */
     refresh(sourceId?: string): Promise<void>

@@ -1,41 +1,30 @@
-// 采集编排器：串起 账号池 → ingest → process → store，含多账号轮换与限流延时。
-// 见 docs/wechat-monitor.md#四轮询与调度。
+// 采集编排器：面向 SourceAdapter 接口，与具体信源解耦。见 docs/ingest.md。
+// 通用流程：adapter.fetch → 去重 → normalizer 归一化 → adapter.enrichBody 补正文 → store。
+// 信源专属逻辑（wechat 账号池/限流、rss 解析）都在各自 adapter 里，这里不感知。
 import type { Source } from '../../shared/contract'
-import type { WxSearchResult } from '../../shared/wechat'
-import { searchBiz, listArticlesPage, toRawItem } from '../ingest/wechat'
-import { normalizeWechat } from '../process/wechat'
-import { fetchArticleBody } from '../process/content'
-import type { AccountPool } from './account-pool'
+import type { AdapterRegistry, DiscoverResult } from '../ingest/adapter'
+import { getNormalizer } from '../process/normalize'
 import type { Store } from '../store'
-import { RATE_LIMIT } from './rate-limit'
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 export interface CollectResult {
   sourceId: string
   newArticles: number
-  status: 'ok' | 'no_account' | 'error'
+  status: 'ok' | 'no_account' | 'rate_limited' | 'auth_expired' | 'error'
   message?: string
 }
 
 export class Collector {
-  private wait: (ms: number) => Promise<void>
-  // 全局串行锁（安全约束）：任何时刻只允许一个 wechat 请求链在跑，杜绝并发打爆账号。
-  // 所有对外入口都经 runExclusive 排队，即使 UI 连点也不会并发。
+  // 全局串行锁（安全约束）：任何时刻只允许一个采集链在跑，杜绝并发打爆账号。
   private chain: Promise<unknown> = Promise.resolve()
 
   constructor(
-    private pool: AccountPool,
-    private store: Store,
-    opts: { sleep?: (ms: number) => Promise<void> } = {}
-  ) {
-    this.wait = opts.sleep ?? sleep
-  }
+    private registry: AdapterRegistry,
+    private store: Store
+  ) {}
 
   /** 把任务排到串行链尾，保证全局互斥执行 */
   private runExclusive<T>(task: () => Promise<T>): Promise<T> {
     const run = this.chain.then(task, task)
-    // 无论成功失败都让链继续（吞掉错误只为解锁，不影响 run 的真实结果）
     this.chain = run.then(
       () => undefined,
       () => undefined
@@ -43,74 +32,49 @@ export class Collector {
     return run
   }
 
-  /** 搜索公众号（吃一次配额，自动换号重试）。全局串行。 */
-  search(query: string): Promise<WxSearchResult[]> {
+  /** 搜索发现（按 type 分派给支持 discover 的 adapter）。全局串行。 */
+  discover(type: string, query: string): Promise<DiscoverResult[]> {
     return this.runExclusive(async () => {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const account = this.pool.pick()
-        if (!account) return []
-        const r = await searchBiz(account, query)
-        this.pool.noteRequest(account.id)
-        if (r.ok) return r.data
-        const { retry } = this.pool.handleResult(account.id, r)
-        if (!retry) return []
-        await this.wait(RATE_LIMIT.accountIntervalMs)
-      }
-      return []
+      const adapter = this.registry.get(type)
+      if (!adapter?.discover) return []
+      return adapter.discover(query)
     })
   }
 
-  /** 增量抓取单个公众号（全局串行入口） */
-  collectSource(source: Source, maxPages = RATE_LIMIT.incrementalMaxPages): Promise<CollectResult> {
+  /** 增量采集单个源（全局串行入口） */
+  collectSource(source: Source, maxPages?: number): Promise<CollectResult> {
     return this.runExclusive(() => this.collectSourceImpl(source, maxPages))
   }
 
-  private async collectSourceImpl(source: Source, maxPages: number): Promise<CollectResult> {
-    const fakeid = (source.config as { fakeid?: string }).fakeid
-    if (!fakeid) return { sourceId: source.id, newArticles: 0, status: 'error', message: '缺少 fakeid' }
-
-    let newCount = 0
-    for (let page = 0; page < maxPages; page++) {
-      const account = this.pool.pick()
-      if (!account) return { sourceId: source.id, newArticles: newCount, status: 'no_account' }
-
-      const begin = page * RATE_LIMIT.pageSize
-      const r = await listArticlesPage(account, fakeid, begin, RATE_LIMIT.pageSize)
-      this.pool.noteRequest(account.id)
-
-      if (!r.ok) {
-        const { retry } = this.pool.handleResult(account.id, r)
-        if (retry) {
-          page-- // 该页换号重试
-          await this.wait(RATE_LIMIT.accountIntervalMs)
-          continue
-        }
-        return { sourceId: source.id, newArticles: newCount, status: 'error', message: r.message }
-      }
-
-      if (r.data.items.length === 0) break
-
-      let hitSeen = false
-      for (const item of r.data.items) {
-        const raw = toRawItem(source.id, item)
-        if (!raw.externalId) continue
-        if (this.store.isSeen(source.id, raw.externalId)) {
-          hitSeen = true // 增量：碰到已见即可停（列表按时间倒序）
-          continue
-        }
-        this.store.saveRaw(raw)
-        const article = normalizeWechat(raw, source)
-        // 阶段2：抓正文页转 markdown（公开页，无需登录态；失败不阻塞入库）
-        const body = await fetchArticleBody(article.sourceUrl)
-        if (body) article.body = body
-        const saved = this.store.saveArticle(article)
-        this.store.markSeen(source.id, raw.externalId, saved.id)
-        newCount++
-      }
-      if (hitSeen) break
-
-      await this.wait(RATE_LIMIT.requestIntervalMs) // 同账号翻页间隔
+  private async collectSourceImpl(source: Source, maxPages?: number): Promise<CollectResult> {
+    const adapter = this.registry.get(source.type)
+    if (!adapter) {
+      return { sourceId: source.id, newArticles: 0, status: 'error', message: `无 ${source.type} adapter` }
     }
-    return { sourceId: source.id, newArticles: newCount, status: 'ok' }
+    const normalize = getNormalizer(source.type)
+    if (!normalize) {
+      return { sourceId: source.id, newArticles: 0, status: 'error', message: `无 ${source.type} normalizer` }
+    }
+
+    // 1. adapter 拉原始条目（内部处理鉴权/限流/分页）
+    const outcome = await adapter.fetch(source, { maxPages })
+
+    // 2. 去重 + 归一化 + 补正文 + 入库
+    let newCount = 0
+    for (const raw of outcome.items) {
+      if (!raw.externalId || this.store.isSeen(source.id, raw.externalId)) continue
+      this.store.saveRaw(raw)
+      const article = normalize(raw, source)
+      // 正文补全（adapter 可选实现；wechat 抓原文页，rss 通常 entry 自带无需抓）
+      if (!article.body && adapter.enrichBody && article.sourceUrl) {
+        const body = await adapter.enrichBody(article.sourceUrl)
+        if (body) article.body = body
+      }
+      const saved = this.store.saveArticle(article)
+      this.store.markSeen(source.id, raw.externalId, saved.id)
+      newCount++
+    }
+
+    return { sourceId: source.id, newArticles: newCount, status: outcome.status, message: outcome.message }
   }
 }

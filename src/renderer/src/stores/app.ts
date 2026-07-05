@@ -1,7 +1,7 @@
 // 前端状态：信源、文章、账号、进度。集中管理并订阅 main 推送。
 import { reactive, readonly } from 'vue'
-import type { Source, Article } from '../../../shared/contract'
-import type { WxAccountView, WxSearchResult } from '../../../shared/wechat'
+import type { Source, Article, DiscoverResult } from '../../../shared/contract'
+import type { WxAccountView } from '../../../shared/wechat'
 import type { IngestProgress } from '../../../shared/ipc'
 
 interface State {
@@ -91,11 +91,11 @@ export const store = {
   },
 
   // —— 信源 ——
-  async search(q: string): Promise<WxSearchResult[]> {
-    return api.source.search(q)
+  async search(type: string, q: string): Promise<DiscoverResult[]> {
+    return api.source.search(type, q)
   },
-  async addSource(r: WxSearchResult): Promise<void> {
-    await api.source.add(r)
+  async addSource(type: string, r: DiscoverResult): Promise<void> {
+    await api.source.add(type, r)
     await this.refreshAll()
   },
   async removeSource(id: string): Promise<void> {

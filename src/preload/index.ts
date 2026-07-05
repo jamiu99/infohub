@@ -11,8 +11,8 @@ const api: InfohubApi = {
   },
   source: {
     list: () => ipcRenderer.invoke(IPC.sourceList),
-    search: (q) => ipcRenderer.invoke(IPC.sourceSearch, q),
-    add: (r) => ipcRenderer.invoke(IPC.sourceAdd, r),
+    search: (type, q) => ipcRenderer.invoke(IPC.sourceSearch, type, q),
+    add: (type, r) => ipcRenderer.invoke(IPC.sourceAdd, type, r),
     remove: (id) => ipcRenderer.invoke(IPC.sourceRemove, id),
     refresh: (id) => ipcRenderer.invoke(IPC.sourceRefresh, id)
   },

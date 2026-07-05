@@ -4,21 +4,30 @@
 
 职责：从各信源拿到**原始数据**，产出 `RawItem[]`。**只负责取，不清洗、不入正式库**。
 
-## adapter 接口
+## adapter 接口（已实现 `src/core/ingest/adapter.ts`）
 
-每种信源 = 一个 adapter，实现同一接口。加新信源 = 加一个 adapter，其余模块不动。
+每种信源 = 一个 adapter，实现同一接口。**加新信源 = 加一个 adapter + 一个 normalizer，collector/store 都不动。**
 
 ```ts
 interface SourceAdapter {
-  type: string;                              // 'wechat' | 'rss' | ...
-  // 可选：搜索/发现信源（如公众号按名搜 fakeid）
-  discover?(query: string): Promise<Array<{ id: string; name: string; meta?: object }>>;
-  // 拉取：给定 Source 配置，产出原始条目
-  fetch(source: Source, opts?: { since?: number; maxPages?: number }): Promise<RawItem[]>;
+  readonly type: string                      // 'wechat' | 'rss' | ...
+  discover?(query: string): Promise<DiscoverResult[]>       // 搜索/试探信源
+  fetch(source: Source, opts?: { maxPages?: number }): Promise<FetchOutcome>  // 拉原始条目
+  readiness?(): { ready: boolean; reason?: string }         // 采集前就绪检查（如 wechat 无账号）
+  enrichBody?(sourceUrl: string): Promise<string | null>    // 可选：补正文（wechat 抓原文页）
 }
 ```
 
-adapter 注册到一个 registry，process/调度层按 `source.type` 找对应 adapter。
+**关键设计**：信源专属复杂度**封装在各自 adapter 内**——
+- `WechatAdapter` 内部持有账号池 + 限流 + 换号重试（`src/core/ingest/wechat-adapter.ts`）；
+- `RssAdapter` 公开抓取、无鉴权（`src/core/ingest/rss-adapter.ts`）。
+
+`Collector`（`src/core/agent/collector.ts`）只面向此接口：`AdapterRegistry.get(type)` 取 adapter →
+`fetch` → 去重 → `getNormalizer(type)` 归一化 → `enrichBody` 补正文 → 存库。全局串行锁保护。
+
+归一化按 type 注册（`src/core/process/normalize.ts`）：`normalizeWechat` / `normalizeRss` 各自 `registerNormalizer`。
+
+新信源接入清单：① 写 `XxxAdapter implements SourceAdapter` ② 写 `normalizeXxx` 并 `registerNormalizer('xxx', …)` ③ service 里 `registry.register(new XxxAdapter())`。三步，其余不动。
 
 ## 微信公众号
 
@@ -53,10 +62,14 @@ cookie: <账号 cookie>
 
 `Source.config` 里存：`{ fakeid: string }`（由 discover 得到）。账号选择交给调度层从账号池取，adapter 本身无状态。
 
-## RSS（P0 打通全链路用）
+## RSS（已实现）
 
-标准 RSS/Atom：给定 `feedUrl`，拉取解析每个 entry → `RawItem`（`externalId = guid`，`raw = entry`）。
-RSS 是 P0 首个跑通的 adapter——它无需登录，最快验证「采集 → 处理 → 存储 → agent」整条链路。
+标准 RSS/Atom：给定 `feedUrl`，拉取解析每个 entry → `RawItem`（`externalId = guid || link`，`raw = entry`）。
+- 解析：`src/core/ingest/rss.ts`（无三方依赖，正则解析 RSS `<item>` 与 Atom `<entry>`，含 CDATA/实体解码）。
+- adapter：`src/core/ingest/rss-adapter.ts`。`discover(url)` = 试探一个 feed URL 返回站点作候选（不接受非 URL）。
+- 归一化：`normalizeRss` 用 entry 的 `content:encoded`/`content`/`summary` 作正文（HTML→markdown），无需 `enrichBody`。
+- 无鉴权、无限流。`Source.config = { feedUrl }`。
+- **已用真实 feed（Hacker News）端到端验证**：discover→fetch 20 条→归一化出标题/正文/时间。
 
 ## 未来信源：AI 写 adapter
 
