@@ -4,6 +4,7 @@ import type { Source } from '../../shared/contract'
 import type { WxSearchResult } from '../../shared/wechat'
 import { searchBiz, listArticlesPage, toRawItem } from '../ingest/wechat'
 import { normalizeWechat } from '../process/wechat'
+import { fetchArticleBody } from '../process/content'
 import type { AccountPool } from './account-pool'
 import type { Store } from '../store'
 import { RATE_LIMIT } from './rate-limit'
@@ -78,6 +79,9 @@ export class Collector {
         }
         this.store.saveRaw(raw)
         const article = normalizeWechat(raw, source)
+        // 阶段2：抓正文页转 markdown（公开页，无需登录态；失败不阻塞入库）
+        const body = await fetchArticleBody(article.sourceUrl)
+        if (body) article.body = body
         const saved = this.store.saveArticle(article)
         this.store.markSeen(source.id, raw.externalId, saved.id)
         newCount++

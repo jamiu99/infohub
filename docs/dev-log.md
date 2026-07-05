@@ -8,7 +8,7 @@
 |------|----------|
 | [contract.md](contract.md) | `src/shared/contract.ts`（Source/RawItem/Article）、`src/shared/wechat.ts`（账号/搜索）、`src/shared/ipc.ts`（IPC 契约） |
 | [ingest.md](ingest.md) | `src/core/ingest/wechat.ts`（searchbiz + appmsg + toRawItem） |
-| [process.md](process.md) | `src/core/process/wechat.ts`（normalizeWechat：归一化阶段1） |
+| [process.md](process.md) | `src/core/process/wechat.ts`（归一化阶段1）、`process/content.ts`（阶段2 正文抓取 HTML→md） |
 | [storage.md](storage.md) | `src/core/store/index.ts`（Store）、`store/markdown.ts`（frontmatter 序列化）、`core/paths.ts` |
 | [wechat-login.md](wechat-login.md) | `src/main/wechat-login.ts`（BrowserWindow 扫码）、`src/core/agent/account-pool.ts`（池+调度）、`agent/rate-limit.ts`、`src/main/secrets.ts`（safeStorage 加密） |
 | [wechat-monitor.md](wechat-monitor.md) | `src/core/agent/collector.ts`（编排）、`agent/poller.ts`（轮询）、`src/main/service.ts`（装配+IPC+定时）、`src/renderer/src/`（三栏 UI） |
@@ -47,6 +47,6 @@ pnpm test:core        # 核心逻辑单测（tsx + node:test），12 项
 
 ## 已知待补（非阻塞）
 
-- **正文抓取**：`appmsg` 列表接口只返回 digest；正文需抓 `link` 页面转 markdown，填 `Article.body`（当前详情页展示 digest 占位）。
 - **fingerprint**：登录时未强制提取，缺失时接口多数仍可用；如遇校验失败再从后台页面 JS 上下文补抓。
+- **正文转换精度**：`content.ts` 是极简 HTML→md，覆盖公众号常见标签；复杂排版（表格/嵌套）可能丢失，按需增强。
 - **AI 增强/简报（P2）**、**RSS adapter**、**Agent CLI 接入（agent.md）** 尚未实现。

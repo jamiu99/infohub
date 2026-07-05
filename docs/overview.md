@@ -61,8 +61,8 @@
 - ✅ 三栏监控 UI（源列表/文章流/详情） → `src/renderer/src/components/`
 - ✅ 配额可视化 + 登录失效引导 UX → `QuotaPanel.vue`
 - ✅ cookie 失效状态机 + 扫码引导 → account-pool + relogin IPC
-- ⬜ 正文抓取（list_ex 只给摘要，需抓 link 页面转 md）
-- ⬜ 真机联调：实际扫码 → 搜号 → 采集验证（需人工扫码，见下）
+- ✅ 正文抓取（抓 link 页面 → #js_content → markdown） → `src/core/process/content.ts`
+- ⬜ 真机联调：实际扫码 → 搜号 → 采集验证（需人工扫码，见 dev-log）
 
 ### P2 — 简报
 - ⬜ 入库 pipeline（清洗/摘要/打分） → [process.md](process.md)
