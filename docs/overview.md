@@ -3,7 +3,7 @@
 > 本文件是 infohub 的**唯一进度入口**。所有子文档从这里派生，改任何模块都要回来更新对应状态行。
 > 铁律：**代码和文档同步更新，禁止版本分离**。每完成一个可验证的点，就在这里勾掉并链到细节。
 
-最后更新：2026-07-06 · 阶段：P0 起步（骨架 + 文档体系搭建中）
+最后更新：2026-07-06 · 阶段：**P1 公众号监控为当前主线**（用户优先级最高）
 
 ---
 
@@ -51,11 +51,15 @@
 - ⬜ store 落地（文件布局 + SQLite schema） → [storage.md](storage.md)
 - ⬜ Agent CLI 接入最小验证（驱动 claude -p 读目录产出摘要） → [agent.md](agent.md)
 
-### P1 — 公众号采集 + 失效处理
-- ⬜ 复用 refs 核心接口（searchbiz + appmsg） → [ingest.md](ingest.md#微信公众号)
+### P1 — 公众号监控（★ 当前主线，几十个号量级）
+产品形态/UI/UX/调度见 [wechat-monitor.md](wechat-monitor.md)。
 - ⬜ 扫码登录 BrowserWindow + cookie/token 抓取 → [wechat-login.md](wechat-login.md)
-- ⬜ 多账号池 + 配额/限流调度（错误码 200013） → [wechat-login.md](wechat-login.md#多账号与限流)
-- ⬜ cookie 失效状态机 + 扫码引导 UI
+- ⬜ 采集核心：searchbiz（搜号）+ appmsg（拉文章），复用 refs 接口 → [ingest.md](ingest.md#微信公众号)
+- ⬜ 多账号池 + 配额/限流调度器（错误码 200013，排队） → [wechat-login.md](wechat-login.md#四多账号与限流)
+- ⬜ 关注列表 + 定时轮询 + 手动刷新 → [wechat-monitor.md](wechat-monitor.md#四轮询与调度)
+- ⬜ 三栏监控 UI（源列表/文章流/详情） → [wechat-monitor.md](wechat-monitor.md#二主界面三栏布局)
+- ⬜ 配额可视化 + 登录失效引导 UX → [wechat-monitor.md](wechat-monitor.md#五ux-重点监控场景的成败在这两处)
+- ⬜ cookie 失效状态机 + 扫码引导
 
 ### P2 — 简报
 - ⬜ 入库 pipeline（清洗/摘要/打分） → [process.md](process.md)
@@ -75,6 +79,7 @@
 | [architecture.md](architecture.md) | 整体架构、进程模型、目录布局、模块边界 |
 | [contract.md](contract.md) | 数据契约：RawItem / Article / Source 字段定义 |
 | [ingest.md](ingest.md) | 采集层：adapter 接口、公众号接口、RSS |
+| [wechat-monitor.md](wechat-monitor.md) | ★ 公众号监控：产品形态、三栏 UI/UX、轮询调度 |
 | [wechat-login.md](wechat-login.md) | 扫码登录、cookie/token 抓取、多账号、限流 |
 | [process.md](process.md) | 处理层：清洗、AI 转写、打分、溯源、老化 |
 | [storage.md](storage.md) | 存储：文件布局 + SQLite 索引 schema |

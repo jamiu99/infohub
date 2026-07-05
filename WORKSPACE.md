@@ -11,6 +11,7 @@ infohub/
 │   ├── architecture.md  # 架构、进程模型、模块边界
 │   ├── contract.md      # 数据契约 RawItem/Article/Source
 │   ├── ingest.md        # 采集层 + 公众号接口 + RSS
+│   ├── wechat-monitor.md # ★ 公众号监控：产品形态 / 三栏 UI / 调度
 │   ├── wechat-login.md  # ★ 扫码登录 / cookie / 多账号 / 限流
 │   ├── process.md       # 处理层 pipeline
 │   ├── storage.md       # 文件布局 + SQLite schema
