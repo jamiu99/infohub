@@ -8,13 +8,26 @@
 
 复用成熟 CLI 的 agent 能力，我们只做"驱动 + 喂数据 + 收结果"。因为 [storage](storage.md) 是**文件为源**，`data/articles/` 就是普通 markdown 目录——任何通用 agent 在这个目录下 `cd` 进去就能 `grep`/读/写，天然可用。这是模块彻底解耦带来的红利。
 
-## 集成方式（两种，组合用）
+## 📋 调研结论（2026-07-06，接入前必读）
 
-参考社区主流（见交接简报）：
+上网调研（官方文档）后的关键结论，**修正了初版探索代码的多处错误假设**：
+
+1. **优先用 Agent SDK，不要 spawn CLI 解析 stdout**。官方有 `@anthropic-ai/claude-agent-sdk`（Node/TS），可直接在 Electron main 进程 `import { query }` 使用：同进程、类型安全、无 IPC/解析开销、权限可编程。spawn `claude -p` 仅适合简单一次性任务。
+   → **决定：主接入走 Agent SDK；`src/main/agent-cli.ts`（spawn 版）降级为备用/降级路径。**
+2. **stream-json 解析：初版假设错了**。不是 `result.result` 直接给最终文本。实际是 NDJSON，外层 `{type:"stream_event", event:{...}}` 包 Claude API 原始事件；文本要累积 `content_block_delta` 里 `delta.type==="text_delta"` 的 `delta.text`。若只要最终结果，用 `--output-format json`（非 stream）取 `.result` 更简单。
+3. **权限（无人值守关键）**：用 `allowedTools` 白名单 + `permissionMode: "acceptEdits"`，或 `PreToolUse` hook 细粒度拦截（如只允许读 `.md`）。**避免** `--dangerously-skip-permissions`。
+4. **合规**：spawn CLI 和用官方 SDK 都是官方支持用途，不算"第三方包装器"。红线：不伪装成 Claude Code、不改 system prompt 隐藏代理身份、UI 标注 "Powered by Claude" 即可。
+5. **计费（待用户验证）**：调研未在官方定价文档找到"独立 Agent SDK 月度额度"的明确说法。设 `ANTHROPIC_API_KEY` 走标准 API 按 token 计费。→ **需在 console.anthropic.com/usage 实测确认**。
+6. **cwd**：SDK `options.cwd` 或 spawn `cwd` 指向数据目录即可，Claude 自动获该目录读权限；多目录用 `additionalDirectories`。
+
+**接入计划**：装 `@anthropic-ai/claude-agent-sdk` → 实现 SDK 版 `AgentCLI.runTask`（`cwd`=data/、`allowedTools` 白名单、`acceptEdits`）→ 简报（P2）作为首个消费者。当前**尚未接入主流程**，`agent-cli.ts` 是探索性备用实现。
+
+## 集成方式（按调研结论，SDK 优先）
 
 | 方式 | 用途 | 技术 |
 |------|------|------|
-| **stream-json** | 结构化任务（简报生成、批量摘要），UI 渲染卡片 | `claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages` |
+| **Agent SDK**（首选） | 结构化任务（简报、批量摘要），Electron main 内直接调 | `@anthropic-ai/claude-agent-sdk` 的 `query({prompt, options:{cwd, allowedTools, permissionMode}})` |
+| **spawn CLI**（备用） | 简单一次性、或 SDK 不可用时降级 | `claude -p ... --output-format json`（取 `.result`）；见 `src/main/agent-cli.ts` |
 | **node-pty + xterm.js** | 交互式终端（开发者模式、自由对话） | `node-pty` 起 CLI 进程，前端 `xterm.js` |
 
 ### WSL / Windows 现实（重要）

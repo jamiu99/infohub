@@ -18,10 +18,10 @@ export interface InfohubApi {
   // —— 账号 ——
   account: {
     list(): Promise<WxAccountView[]>
-    /** 打开扫码登录窗口，返回新账号视图（失败抛错） */
-    login(): Promise<WxAccountView>
-    /** 重新扫码（账号失效时） */
-    relogin(accountId: string): Promise<WxAccountView>
+    /** 打开登录/切换窗口：扫一次码 + 切换账号自动捕获旗下各号，返回捕获后的账号列表 */
+    login(): Promise<WxAccountView[]>
+    /** 重新登录/刷新失效账号（同样打开切换窗口） */
+    relogin(accountId?: string): Promise<WxAccountView[]>
     remove(accountId: string): Promise<void>
   }
   // —— 信源（关注的公众号）——

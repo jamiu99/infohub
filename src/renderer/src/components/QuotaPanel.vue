@@ -20,7 +20,9 @@ function pct(a: { requestsThisHour: number; hourLimit: number }): number {
     </div>
 
     <div v-if="!accounts.length" class="empty">
-      未登录账号<br /><button class="primary" @click="store.login()">扫码登录</button>
+      未登录账号<br />
+      <button class="primary" @click="store.login()">扫码登录</button>
+      <div class="tip">扫码后可在窗口内「切换账号」，旗下各号会自动加入池（免密）</div>
     </div>
 
     <div v-for="a in accounts" :key="a.id" class="acc">
@@ -36,12 +38,12 @@ function pct(a: { requestsThisHour: number; hourLimit: number }): number {
         <div class="fill" :style="{ width: pct(a) + '%' }"></div>
       </div>
       <button v-else-if="a.status === 'expired'" class="relogin" @click="store.relogin(a.id)">
-        重新扫码
+        重新登录
       </button>
     </div>
 
     <button v-if="accounts.length" class="add" @click="store.login()">
-      + 添加账号（提升采集上限）
+      + 登录/切换账号（捕获更多号）
     </button>
   </div>
 </template>
@@ -65,6 +67,12 @@ function pct(a: { requestsThisHour: number; hourLimit: number }): number {
   text-align: center;
   color: var(--text-dim);
   line-height: 2;
+}
+.tip {
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 6px;
+  opacity: 0.8;
 }
 .acc {
   margin-bottom: 8px;

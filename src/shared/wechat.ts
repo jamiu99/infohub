@@ -4,11 +4,12 @@ export type WxAccountStatus = 'active' | 'cooldown' | 'expired'
 
 export interface WxAccount {
   id: string
+  identityKey?: string // 身份键（按公众号名去重），见 wechat-login.identityKey
   nickname?: string
   token: string
   cookies: Record<string, string>
   fingerprint?: string
-  partition: string // persist:wx-<id>
+  partition: string // 所有号共享 persist:wx-main（同一微信会话）
   status: WxAccountStatus
   cooldownUntil?: number // 命中限流后恢复时刻 UTC ms
   requestsThisHour: number // 滑动窗口计数

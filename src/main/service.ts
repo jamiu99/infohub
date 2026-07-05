@@ -12,7 +12,8 @@ import { IPC } from '../shared/ipc'
 import type { Source } from '../shared/contract'
 import type { WxSearchResult } from '../shared/wechat'
 import { saveAccounts, loadAccounts } from './secrets'
-import { openWechatLogin, makeAccount } from './wechat-login'
+import { openWechatSwitcher, makeAccount, identityKey } from './wechat-login'
+import type { CapturedIdentity } from './wechat-login'
 
 export class Service {
   private store: Store
@@ -33,6 +34,23 @@ export class Service {
     for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, ...args)
   }
 
+  /** 捕获到一个身份：按 identityKey 找已有账号则更新其 token/cookie，否则新建。 */
+  private upsertCaptured(id: CapturedIdentity): void {
+    const key = identityKey(id)
+    const existing = this.pool.list().find((a) => a.identityKey === key)
+    if (existing) {
+      this.pool.refreshCredentials(existing.id, {
+        token: id.token,
+        cookies: id.cookies,
+        nickname: id.nickname ?? existing.nickname
+      })
+    } else {
+      const acc = makeAccount(randomUUID().slice(0, 8), id, Date.now())
+      acc.identityKey = key
+      this.pool.add(acc)
+    }
+  }
+
   start(): void {
     this.registerIpc()
     // 注意：不启动任何自动轮询定时器。采集只由用户手动触发（source:refresh）。
@@ -41,19 +59,16 @@ export class Service {
   private registerIpc(): void {
     // —— 账号 ——
     ipcMain.handle(IPC.accountList, () => this.pool.views())
+    // 登录/切换：只扫一次码，用户在窗口内"切换账号"切到旗下各号，
+    // 每切一个自动捕获 token 入池（按 identityKey 去重/更新）。见 wechat-login.ts。
     ipcMain.handle(IPC.accountLogin, async () => {
-      const id = randomUUID().slice(0, 8)
-      const partition = `persist:wx-${id}`
-      const r = await openWechatLogin(partition)
-      this.pool.add(makeAccount(id, partition, r, Date.now()))
-      return this.pool.views().find((v) => v.id === id)!
+      await openWechatSwitcher((id) => this.upsertCaptured(id))
+      return this.pool.views()
     })
-    ipcMain.handle(IPC.accountRelogin, async (_e, accountId: string) => {
-      const acc = this.pool.get(accountId)
-      if (!acc) throw new Error('账号不存在')
-      const r = await openWechatLogin(acc.partition)
-      this.pool.refreshCredentials(accountId, { token: r.token, cookies: r.cookies, nickname: r.nickname })
-      return this.pool.views().find((v) => v.id === accountId)!
+    // relogin：某账号 token 失效时，同样打开切换窗口刷新（切到该号即自动更新其 token）
+    ipcMain.handle(IPC.accountRelogin, async () => {
+      await openWechatSwitcher((id) => this.upsertCaptured(id))
+      return this.pool.views()
     })
     ipcMain.handle(IPC.accountRemove, (_e, id: string) => this.pool.remove(id))
 
