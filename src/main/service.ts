@@ -33,6 +33,40 @@ export class Service {
     for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, ...args)
   }
 
+  /** 后台采集一个源：广播进度（polling→idle），完成后刷新文章流。不阻塞调用方。 */
+  private async collectInBackground(source: Source): Promise<void> {
+    this.broadcast('ingest-progress', { phase: 'polling', currentSource: source.name, queued: 1 })
+    try {
+      const r = await this.collector.collectSource(source)
+      if (r.newArticles > 0) this.broadcast('articles-changed')
+    } finally {
+      this.broadcast('ingest-progress', { phase: 'idle', queued: 0 })
+    }
+  }
+
+  /** 后台刷新：单个或全部源，串行采集并逐个广播进度。 */
+  private async refreshInBackground(sourceId?: string): Promise<void> {
+    const sources = this.store.listSources()
+    const targets = sourceId ? sources.filter((s) => s.id === sourceId) : sources.filter((s) => s.enabled)
+    let total = 0
+    try {
+      for (let i = 0; i < targets.length; i++) {
+        const s = targets[i]
+        this.broadcast('ingest-progress', {
+          phase: 'polling',
+          currentSource: s.name,
+          queued: targets.length - i
+        })
+        const r = await this.collector.collectSource(s)
+        total += r.newArticles
+        if (r.newArticles > 0) this.broadcast('articles-changed') // 每源完成即刷新
+      }
+    } finally {
+      this.broadcast('ingest-progress', { phase: 'idle', queued: 0 })
+      if (total > 0) this.broadcast('articles-changed')
+    }
+  }
+
 
   start(): void {
     this.registerIpc()
@@ -77,27 +111,27 @@ export class Service {
         sources.push(source)
         this.store.saveSources(sources)
       }
-      // 立即抓一次
-      const r = await this.collector.collectSource(source)
-      if (r.newArticles > 0) this.broadcast('articles-changed')
+      // 立即返回（关注瞬间生效，UI 秒关弹窗）；首次采集放后台异步跑，完成再广播刷新。
+      // 采集耗时（逐篇抓正文 + 限流间隔可达十几秒），不能阻塞点击反馈。
+      void this.collectInBackground(source)
       return source
     })
     ipcMain.handle(IPC.sourceRemove, (_e, id: string) => {
       this.store.saveSources(this.store.listSources().filter((s) => s.id !== id))
+      this.store.purgeSource(id) // 取关即清该号文章，避免孤儿数据
+      this.broadcast('articles-changed')
     })
-    ipcMain.handle(IPC.sourceRefresh, async (_e, sourceId?: string) => {
-      const sources = this.store.listSources()
-      const targets = sourceId ? sources.filter((s) => s.id === sourceId) : sources
-      let total = 0
-      for (const s of targets) {
-        const r = await this.collector.collectSource(s)
-        total += r.newArticles
-      }
-      if (total > 0) this.broadcast('articles-changed')
+    ipcMain.handle(IPC.sourceRefresh, (_e, sourceId?: string) => {
+      // 立即返回，后台串行采集并广播进度，避免 UI 卡在"刷新中"十几秒。
+      void this.refreshInBackground(sourceId)
     })
 
     // —— 文章 ——
-    ipcMain.handle(IPC.articleList, (_e, opts) => this.store.listArticles(opts))
+    // 只返回仍在关注列表里的源的文章，防孤儿数据串到 UI（左右不一致）。
+    ipcMain.handle(IPC.articleList, (_e, opts) => {
+      const followed = new Set(this.store.listSources().map((s) => s.id))
+      return this.store.listArticles(opts).filter((a) => followed.has(a.source.id))
+    })
     ipcMain.handle(IPC.articleGet, (_e, id: string) => this.store.getArticle(id))
     ipcMain.handle(IPC.articleMarkRead, (_e, id: string, read: boolean) => this.store.setRead(id, read))
     ipcMain.handle(IPC.articleArchive, (_e, id: string) => this.store.setArchived(id, true))

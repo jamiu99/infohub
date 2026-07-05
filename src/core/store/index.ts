@@ -1,7 +1,7 @@
 // 存储层：文件为源 + SQLite 索引。见 docs/storage.md。
 // SQLite 用 Node 内置 node:sqlite（禁止三方库）。
 import { DatabaseSync } from 'node:sqlite'
-import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Article, Source, RawItem } from '../../shared/contract'
 import type { Paths } from '../paths'
@@ -142,6 +142,21 @@ export class Store {
     const full = join(this.paths.articles, row.file_path)
     if (!existsSync(full)) return null
     return parseArticleMarkdown(readFileSync(full, 'utf8'), row.file_path)
+  }
+
+  /** 删除某源的全部文章（文件 + 索引 + 已见记录）。取关时调用，避免孤儿数据。 */
+  purgeSource(sourceId: string): void {
+    const rows = this.db
+      .prepare('SELECT file_path FROM articles WHERE source_id = ?')
+      .all(sourceId) as Array<{ file_path: string | null }>
+    for (const r of rows) {
+      if (r.file_path) {
+        const full = join(this.paths.articles, r.file_path)
+        if (existsSync(full)) rmSync(full, { force: true })
+      }
+    }
+    this.db.prepare('DELETE FROM articles WHERE source_id = ?').run(sourceId)
+    this.db.prepare('DELETE FROM seen_items WHERE source_id = ?').run(sourceId)
   }
 
   setRead(id: string, read: boolean): void {

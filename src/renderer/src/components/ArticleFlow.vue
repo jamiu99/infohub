@@ -7,6 +7,7 @@ import { relativeTime, clockTime } from '../util'
 const articles = computed(() => store.state.articles)
 const selectedId = computed(() => store.state.selectedArticle?.id)
 const progress = computed(() => store.state.progress)
+const busy = computed(() => progress.value.phase !== 'idle')
 
 const title = computed(() => {
   const id = store.state.selectedSourceId
@@ -29,8 +30,8 @@ function refresh(): void {
           <option value="unread">未读</option>
           <option value="archived">已归档</option>
         </select>
-        <button :disabled="store.state.loading" @click="refresh">
-          {{ store.state.loading ? '刷新中…' : '⟳ 刷新' }}
+        <button :disabled="busy" @click="refresh">
+          {{ busy ? '采集中…' : '⟳ 刷新' }}
         </button>
       </div>
     </header>

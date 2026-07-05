@@ -13,7 +13,6 @@ interface State {
   selectedArticle: Article | null
   filter: 'unread' | 'all' | 'archived'
   progress: IngestProgress
-  loading: boolean
 }
 
 const state = reactive<State>({
@@ -24,8 +23,7 @@ const state = reactive<State>({
   selectedSourceId: null,
   selectedArticle: null,
   filter: 'all',
-  progress: { phase: 'idle', queued: 0 },
-  loading: false
+  progress: { phase: 'idle', queued: 0 }
 })
 
 const api = window.api
@@ -106,12 +104,7 @@ export const store = {
     await this.refreshAll()
   },
   async refresh(sourceId?: string): Promise<void> {
-    state.loading = true
-    try {
-      await api.source.refresh(sourceId)
-      await this.refreshAll()
-    } finally {
-      state.loading = false
-    }
+    // 后台采集：立即返回，进度由 ingest-progress 事件驱动（见 ArticleFlow 进度条）。
+    await api.source.refresh(sourceId)
   }
 }
