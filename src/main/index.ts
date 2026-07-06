@@ -38,8 +38,18 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
+  // F12 / Ctrl+Shift+I 开关 DevTools（默认菜单被移除了，这里手动绑）
+  win.webContents.on('before-input-event', (_e, input) => {
+    const f12 = input.key === 'F12'
+    const ctrlShiftI = input.control && input.shift && input.key.toLowerCase() === 'i'
+    if (input.type === 'keyDown' && (f12 || ctrlShiftI)) {
+      win.webContents.toggleDevTools()
+    }
+  })
+
   if (process.env.ELECTRON_RENDERER_URL) {
     void win.loadURL(process.env.ELECTRON_RENDERER_URL)
+    win.webContents.openDevTools({ mode: 'right' }) // 临时：排查前端报错
   } else {
     void win.loadFile(join(__dirname, '../renderer/index.html'))
   }

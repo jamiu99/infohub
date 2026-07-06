@@ -44,6 +44,18 @@ export class Service {
     for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, ...args)
   }
 
+  /** 包装 ipcMain.handle，捕获并打印异常（否则前端只见 rejected promise，主进程无日志难排查） */
+  private handle(channel: string, fn: (...args: unknown[]) => unknown): void {
+    ipcMain.handle(channel, async (_e, ...args) => {
+      try {
+        return await fn(...args)
+      } catch (err) {
+        console.error(`[IPC ${channel}] 失败:`, err)
+        throw err
+      }
+    })
+  }
+
   /** 由 type + config 派生稳定 source id（wechat 用 fakeid、rss 用 feedUrl 哈希） */
   private makeSourceId(type: string, result: DiscoverResult): string {
     const c = result.config as { fakeid?: string; feedUrl?: string }
@@ -107,11 +119,11 @@ export class Service {
   }
 
   private registerIpc(): void {
+    // 全部 handler 走 this.handle 包装（自动打印异常，便于排查）
     // —— 账号 ——
-    ipcMain.handle(IPC.accountList, () => this.pool.views())
+    this.handle(IPC.accountList, () => this.pool.views())
     // 登录：开一个独立分区窗口，用户扫码登录一个号，关窗时抓取并入池。
-    // 想加更多号就再点一次（各号独立分区，互不干扰）。见 wechat-login.ts。
-    ipcMain.handle(IPC.accountLogin, async () => {
+    this.handle(IPC.accountLogin, async () => {
       const id = randomUUID().slice(0, 8)
       const partition = `persist:wx-${id}`
       const r = await openWechatLogin(partition)
@@ -119,26 +131,28 @@ export class Service {
       return this.pool.views()
     })
     // relogin：某账号失效时，复用其原分区重新登录刷新 token+cookie。
-    ipcMain.handle(IPC.accountRelogin, async (_e, accountId: string) => {
-      const acc = this.pool.get(accountId)
+    this.handle(IPC.accountRelogin, async (accountId) => {
+      const acc = this.pool.get(accountId as string)
       if (!acc) return this.pool.views()
       const r = await openWechatLogin(acc.partition)
-      if (r) this.pool.refreshCredentials(accountId, { token: r.token, cookies: r.cookies, nickname: r.nickname })
+      if (r) this.pool.refreshCredentials(acc.id, { token: r.token, cookies: r.cookies, nickname: r.nickname })
       return this.pool.views()
     })
-    ipcMain.handle(IPC.accountRemove, (_e, id: string) => this.pool.remove(id))
+    this.handle(IPC.accountRemove, (id) => this.pool.remove(id as string))
 
     // —— 信源 ——
-    ipcMain.handle(IPC.sourceList, () => this.store.listSources())
-    ipcMain.handle(IPC.sourceSearch, (_e, type: string, q: string) => this.collector.discover(type, q))
-    ipcMain.handle(IPC.sourceAdd, async (_e, type: string, result: DiscoverResult) => {
+    this.handle(IPC.sourceList, () => this.store.listSources())
+    this.handle(IPC.sourceSearch, (type, q) => this.collector.discover(type as string, q as string))
+    this.handle(IPC.sourceAdd, (type, result) => {
+      const t = type as string
+      const res = result as DiscoverResult
       const sources = this.store.listSources()
       const source: Source = {
-        id: this.makeSourceId(type, result),
-        type,
-        name: result.name,
+        id: this.makeSourceId(t, res),
+        type: t,
+        name: res.name,
         enabled: true,
-        config: result.config
+        config: res.config
       }
       if (!sources.find((s) => s.id === source.id)) {
         sources.push(source)
@@ -148,26 +162,24 @@ export class Service {
       void this.collectInBackground(source)
       return source
     })
-    ipcMain.handle(IPC.sourceRemove, (_e, id: string) => {
-      this.store.saveSources(this.store.listSources().filter((s) => s.id !== id))
-      this.store.purgeSource(id) // 取关即清该号文章，避免孤儿数据
+    this.handle(IPC.sourceRemove, (id) => {
+      this.store.saveSources(this.store.listSources().filter((s) => s.id !== (id as string)))
+      this.store.purgeSource(id as string)
       this.broadcast('articles-changed')
     })
-    ipcMain.handle(IPC.sourceRefresh, (_e, sourceId?: string) => {
-      // 立即返回，后台串行采集并广播进度，避免 UI 卡在"刷新中"十几秒。
-      void this.refreshInBackground(sourceId)
+    this.handle(IPC.sourceRefresh, (sourceId) => {
+      void this.refreshInBackground(sourceId as string | undefined)
     })
 
     // —— 文章 ——
-    // 只返回仍在关注列表里的源的文章，防孤儿数据串到 UI（左右不一致）。
-    ipcMain.handle(IPC.articleList, (_e, opts) => {
+    this.handle(IPC.articleList, (opts) => {
       const followed = new Set(this.store.listSources().map((s) => s.id))
-      return this.store.listArticles(opts).filter((a) => followed.has(a.source.id))
+      return this.store.listArticles(opts as never).filter((a) => followed.has(a.source.id))
     })
-    ipcMain.handle(IPC.articleGet, (_e, id: string) => this.store.getArticle(id))
-    ipcMain.handle(IPC.articleMarkRead, (_e, id: string, read: boolean) => this.store.setRead(id, read))
-    ipcMain.handle(IPC.articleArchive, (_e, id: string) => this.store.setArchived(id, true))
-    ipcMain.handle(IPC.articleUnreadCounts, () => this.store.unreadCounts())
+    this.handle(IPC.articleGet, (id) => this.store.getArticle(id as string))
+    this.handle(IPC.articleMarkRead, (id, read) => this.store.setRead(id as string, read as boolean))
+    this.handle(IPC.articleArchive, (id) => this.store.setArchived(id as string, true))
+    this.handle(IPC.articleUnreadCounts, () => this.store.unreadCounts())
   }
 
   stop(): void {

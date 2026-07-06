@@ -95,7 +95,10 @@ export const store = {
     return api.source.search(type, q)
   },
   async addSource(type: string, r: DiscoverResult): Promise<void> {
-    await api.source.add(type, r)
+    // r 来自 reactive 的 results，是 Vue Proxy；IPC 结构化克隆无法克隆 Proxy
+    // （报 "An object could not be cloned"）→ 先深拷成纯对象再传。
+    const plain = JSON.parse(JSON.stringify(r)) as DiscoverResult
+    await api.source.add(type, plain)
     await this.refreshAll()
   },
   async removeSource(id: string): Promise<void> {
