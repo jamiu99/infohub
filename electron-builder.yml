@@ -31,3 +31,4 @@ publish:
   provider: github
   owner: jamiu99
   repo: infohub
+  releaseType: release # 直接发正式版（默认 draft 需手动点发布，这里免手动）
