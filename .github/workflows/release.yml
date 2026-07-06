@@ -1,0 +1,36 @@
+name: Release
+
+# 推 v* tag 时触发：Windows 云构建机编译 + 发布到 GitHub Release（自动更新源）
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # electron-builder 需要写 Release
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (electron-vite)
+        run: pnpm build
+
+      - name: Package & publish (electron-builder)
+        run: pnpm exec electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

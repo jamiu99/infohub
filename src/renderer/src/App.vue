@@ -4,6 +4,7 @@ import { store } from './stores/app'
 import SourceList from './components/SourceList.vue'
 import ArticleFlow from './components/ArticleFlow.vue'
 import ArticleDetail from './components/ArticleDetail.vue'
+import UpdateBanner from './components/UpdateBanner.vue'
 
 onMounted(() => void store.init())
 </script>
@@ -13,6 +14,7 @@ onMounted(() => void store.init())
     <aside class="col col-sources"><SourceList /></aside>
     <section class="col col-flow"><ArticleFlow /></section>
     <section class="col col-detail"><ArticleDetail /></section>
+    <UpdateBanner />
   </div>
 </template>
 

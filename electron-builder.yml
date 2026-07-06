@@ -1,0 +1,33 @@
+appId: com.jamiu.infohub
+productName: infohub
+# 打包产物 & 元数据
+directories:
+  output: release
+  buildResources: resources
+# 只打包构建产物与运行时依赖（electron-vite 输出在 out/）
+files:
+  - out/**/*
+  - package.json
+# 内置 skills 随安装包分发，运行时由 installSkills() 复制到用户数据目录
+extraResources:
+  - from: resources/skills
+    to: skills
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  # 未签名（个人使用；首次装 SmartScreen 会提示"未知发行者"，点"仍要运行"）
+
+nsis:
+  oneClick: false # 显示安装向导（可选安装路径）
+  perMachine: false # 装到当前用户，免管理员权限
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+# 自动更新源：公开仓的 GitHub Release
+publish:
+  provider: github
+  owner: jamiu99
+  repo: infohub

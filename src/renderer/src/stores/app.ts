@@ -2,7 +2,7 @@
 import { reactive, readonly } from 'vue'
 import type { Source, Article, DiscoverResult } from '../../../shared/contract'
 import type { WxAccountView } from '../../../shared/wechat'
-import type { IngestProgress } from '../../../shared/ipc'
+import type { IngestProgress, UpdateStatus } from '../../../shared/ipc'
 
 interface State {
   sources: Source[]
@@ -13,6 +13,7 @@ interface State {
   selectedArticle: Article | null
   filter: 'unread' | 'all' | 'archived'
   progress: IngestProgress
+  update: UpdateStatus | null
 }
 
 const state = reactive<State>({
@@ -23,7 +24,8 @@ const state = reactive<State>({
   selectedSourceId: null,
   selectedArticle: null,
   filter: 'all',
-  progress: { phase: 'idle', queued: 0 }
+  progress: { phase: 'idle', queued: 0 },
+  update: null
 })
 
 const api = window.api
@@ -36,6 +38,11 @@ export const store = {
     api.on('accounts-changed', () => void this.loadAccounts())
     api.on('articles-changed', () => void this.refreshAll())
     api.on('ingest-progress', (p) => (state.progress = p))
+    api.on('update-status', (s) => (state.update = s))
+  },
+
+  installUpdate(): void {
+    void api.update.install()
   },
 
   async loadSources(): Promise<void> {

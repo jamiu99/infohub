@@ -104,6 +104,7 @@
 | [agent.md](agent.md) | AI 基建：CLI 集成、stream-json、自我修改约束 |
 | [decisions.md](decisions.md) | 决策日志（ADR）：为什么这么选 |
 | [briefing.md](briefing.md) | 每日简报（P2）设计：技术底座 + 方法论 + MVP 方案 |
+| [release.md](release.md) | Windows 发布 + 自动更新（CI 打包、electron-updater） |
 | [dev-log.md](dev-log.md) | 开发日志 & 代码地图（文档↔实现映射、如何运行/测试） |
 
 ## 6. 未决待定项

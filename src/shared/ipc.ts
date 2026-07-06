@@ -43,10 +43,24 @@ export interface InfohubApi {
     archive(id: string): Promise<void>
     unreadCounts(): Promise<Record<string, number>> // sourceId → 未读数
   }
+  // —— 自动更新 ——
+  update: {
+    check(): Promise<void>
+    install(): Promise<void>
+  }
   // —— 事件订阅 ——
   on(channel: 'ingest-progress', cb: (p: IngestProgress) => void): () => void
   on(channel: 'accounts-changed', cb: () => void): () => void
   on(channel: 'articles-changed', cb: () => void): () => void
+  on(channel: 'update-status', cb: (s: UpdateStatus) => void): () => void
+}
+
+/** 自动更新状态（main → renderer） */
+export interface UpdateStatus {
+  state: 'checking' | 'available' | 'none' | 'downloading' | 'ready' | 'error'
+  version?: string
+  percent?: number
+  message?: string
 }
 
 /** IPC 通道名常量 */

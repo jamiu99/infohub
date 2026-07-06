@@ -1,6 +1,7 @@
 import { app, BrowserWindow, shell, Menu, session } from 'electron'
 import { join } from 'node:path'
 import { Service } from './service'
+import { initUpdater } from './updater'
 
 let service: Service | null = null
 
@@ -49,7 +50,6 @@ function createWindow(): void {
 
   if (process.env.ELECTRON_RENDERER_URL) {
     void win.loadURL(process.env.ELECTRON_RENDERER_URL)
-    win.webContents.openDevTools({ mode: 'right' }) // 临时：排查前端报错
   } else {
     void win.loadFile(join(__dirname, '../renderer/index.html'))
   }
@@ -60,6 +60,7 @@ app.whenReady().then(() => {
   service = new Service()
   service.start()
   createWindow()
+  initUpdater()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

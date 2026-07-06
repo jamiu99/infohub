@@ -23,6 +23,10 @@ const api: InfohubApi = {
     archive: (id) => ipcRenderer.invoke(IPC.articleArchive, id),
     unreadCounts: () => ipcRenderer.invoke(IPC.articleUnreadCounts)
   },
+  update: {
+    check: () => ipcRenderer.invoke('update:check'),
+    install: () => ipcRenderer.invoke('update:install')
+  },
   on: (channel, cb) => {
     const listener = (_e: unknown, ...args: unknown[]) => (cb as (...a: unknown[]) => void)(...args)
     ipcRenderer.on(channel, listener)
