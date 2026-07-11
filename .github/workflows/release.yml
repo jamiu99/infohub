@@ -27,6 +27,21 @@ jobs:
       - name: Install deps
         run: pnpm install --frozen-lockfile
 
+      - name: Verify tag matches package version
+        shell: pwsh
+        run: |
+          $packageVersion = node -p "require('./package.json').version"
+          $tagVersion = "${{ github.ref_name }}"
+          if ($tagVersion -ne "v$packageVersion") {
+            throw "Tag $tagVersion does not match package version v$packageVersion"
+          }
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test core
+        run: pnpm test:core
+
       - name: Build (electron-vite)
         run: pnpm build
 

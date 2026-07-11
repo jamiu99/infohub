@@ -1,40 +1,58 @@
 # 处理层（process）
 
-> 上级：[overview.md](overview.md) · 输入 `RawItem`（[ingest](ingest.md)）· 输出 `Article`（[contract](contract.md)）
+> 上级：[overview.md](overview.md) · 输入：[RawItem](contract.md#rawitem--原始采集产物未清洗) · 输出：[Article](contract.md#article--统一结构处理层产物全局通用)
 
-职责：把原始条目二次处理成统一、干净、有价值的 `Article`。**渐进式**——一条 Article 可以只跑清洗就入库，AI 增强按需后补。
+职责是把不同信源的原始条目归一为统一 `Article`，并按信源补全正文。pipeline 只做确定性转换，不调用模型，也不判断内容价值。
 
-## 处理阶段（pipeline，各步独立可开关）
+## 当前 pipeline
 
-```
+```text
 RawItem
   │
-  ├─ 1. 归一化（必做）
-  │     信源特色字段 → Article 标准字段 + ext
-  │     wechat: {title, digest, link, create_time, cover, author_name, fakeid}
-  │            → title / sourceUrl=link / publishedAt=create_time*1000 / ext={...}
-  │     统一时间为 UTC ms（存 UTC，展示本地时区）
+  ├─ 1. 按 source.type 找 normalizer（必做）
+  │     wechat → normalizeWechat
+  │     rss    → normalizeRss
   │
-  ├─ 2. 正文抓取 / 清洗（按信源）
-  │     公众号 list_ex 只给 digest+link，正文需另抓 link 页面 → 转 markdown
-  │     去广告/模板噪声，保留正文与图片引用
+  ├─ 2. 统一 Article 字段与 UTC 毫秒时间
   │
-  ├─ 3. AI 二次转写（可选，调 API/AI）
-  │     - 摘要 summary
-  │     - 价值打分 score（老/无价值 → 低分）
-  │     - 老化判断 staleness: fresh/aging/stale
-  │     - 标签 tags
+  ├─ 3. 正文补全
+  │     wechat：抓 sourceUrl → 提取 #js_content → 轻量 HTML→Markdown
+  │     rss：优先 entry.content，退回 summary → HTML→Markdown
   │
-  └─ 4. 溯源校验（可选）
-        核对 sourceUrl 可达、内容与来源一致 → provenance.{verified, note}
-        「溯源后有问题」的标记，供下游过滤
-  ▼
-Article → 交 store 落地
+  └─ 4. Store 写 Markdown + SQLite 索引
 ```
 
-## 要点
+实现位置：
 
-- **阶段解耦**：每阶段读写的都是 Article 字段，缺某步只是对应字段为空，不阻塞入库。
-- **AI 调用走 agent 层**：摘要/打分等可由 [agent.md](agent.md) 的 CLI 或 API 完成，process 只定义"要什么"，不绑定具体模型。
-- **可重放**：`raw/` 保留原始载荷，处理逻辑升级后可对旧数据重跑，不用重新采集。
-- **老化与价值**：`score` + `staleness` 是简报（P2）筛选的依据——低价值/过期的不进简报。
+- `src/core/process/normalize.ts`：normalizer 注册表。
+- `src/core/process/wechat.ts`：微信字段映射与稳定文章 ID。
+- `src/core/process/rss.ts`：RSS 字段映射、正文选择与稳定 ID。
+- `src/core/process/content.ts`：公众号正文提取和轻量 HTML → Markdown。
+
+## 已实现字段
+
+| 字段 | 微信 | RSS |
+|------|------|-----|
+| title / sourceUrl / source | ✅ | ✅ |
+| publishedAt（UTC ms） | ✅，微信秒转毫秒 | ✅，feed 日期解析 |
+| body | ✅，公开原文页补全；失败可为空 | ✅，content/summary 转换 |
+| ext | fakeid、作者、封面、digest 等 | guid、原 summary |
+| read / archived | 初始为 `false` | 初始为 `false` |
+| 旧兼容注释 | 不生成、不展示 | 不生成、不展示 |
+
+## 尚未完成
+
+- **正文转换精度**：当前转换器只覆盖常见标题、段落、链接、图片、强调、引用和列表；表格、嵌套布局、音视频等会丢失。
+- **重放入口**：保留了 `raw/`，尚无正式命令对旧数据批量重跑新版 normalizer。
+- **质量度量**：正文为空、字段缺失、来源不可达等数据质量指标尚未进入索引和看板。
+
+## 展示安全
+
+存储层保留 Markdown 与外链原貌；renderer 展示时执行文本/属性转义、绝对 http(s) URL 白名单和 DOMPurify allowlist。Electron 页面另有 CSP、sandbox 与 main 外链 scheme 校验。安全回归用例覆盖 `javascript:`、`data:`、原始 `<script>` 与属性注入。
+
+## 新增信源
+
+1. 实现 `SourceAdapter`，输出合法 `RawItem`。
+2. 实现 `normalizeXxx(item, source)` 并注册 `source.type`。
+3. 在 `Service` 注册 adapter。
+4. 为 adapter、normalizer、去重和正文策略补测试，并同步 [ingest.md](ingest.md) 与本文件。

@@ -2,7 +2,7 @@
 
 > 上级：[overview.md](overview.md) · 采集接口见 [ingest.md](ingest.md#微信公众号) · 源参考：`refs/get_wechat_list`（代码烂，只取核心接口逻辑）
 
-这是本项目的**核心亮点与技术壁垒**。公众号后台的两个引用接口能抓文章，但要求登录态（cookie + token）。目标：**你只扫码，App 自动把 cookie/token 存好，失效自动引导重扫。**
+公众号后台的两个引用接口能抓文章，但要求登录态（cookie + token）。当前实现目标是：用户只在官方页面扫码，App 保存本机登录态；失效后由用户主动重新登录。相关接口可能变化，且真实账号安全优先于采集速度。
 
 ## 一、采集依赖的鉴权三要素
 
@@ -12,7 +12,7 @@
 |------|------|------|
 | **cookie** | 登录后浏览器 session | 关键是 `slave_sid` / `slave_user` / `bizuin` 等，整包带上最稳 |
 | **token** | 登录后跳转 URL 的 `?token=` 参数 | 后台每个页面 URL 都带，是接口必填 query |
-| **fingerprint** | 页面内生成 | 可从后台页面 JS 上下文或某次请求里取；缺了部分接口也能过，先尽量抓 |
+| **fingerprint** | 页面内生成 | 当前登录代码未提取，接口请求传空字符串；历史联调可用，但兼容性风险仍在 |
 
 ## 二、扫码登录方案：内嵌 BrowserWindow（不模拟登录接口）
 
@@ -50,14 +50,13 @@
 
 ## 三、账号池与持久化
 
-多账号是**绕开单账号每日配额**的手段。账号池存本地（cookie/token 属敏感数据，加密存储）。
+多账号用于在多个独立主体之间保守分摊请求。账号池只存本机；cookie/token 属敏感数据。
 
 ```ts
 interface WxAccount {
   id: string;
-  identityKey?: string;     // 身份键（优先公众号昵称）→ 去重/更新用
-  nickname?: string;        // 公众号名，切到该号时从页面读
-  token: string;            // 该号当前 token（切换/失效会更新）
+  nickname?: string;        // 登录后尽量从页面读取
+  token: string;            // 当前后台 token（重登时更新）
   cookies: Record<string, string>;
   fingerprint?: string;
   partition: string;        // 每个号独立 persist:wx-<id>
@@ -69,40 +68,43 @@ interface WxAccount {
 }
 ```
 
-- **加密存储**：cookie/token 用 Electron `safeStorage`（OS keychain 加密）落盘，不明文入库、不入 git。
+- **凭据存储**：OS keychain 可用时用 Electron `safeStorage` 加密；不可用时当前会回退成明文 JSON。文件不入 git，但稳定版前需要告警与迁移机制，详见 [storage.md](storage.md#敏感数据)。
 - **独立分区**：各号 cookie/token 完全隔离，互不覆盖。
 - 账号池文件与正文数据分离，见 [storage.md](storage.md)。
 
 ## 四、多账号与限流
 
-源参考里的实测限流参数（`refs/.../rate_limit_config.py`）直接采纳：
+代码当前使用刻意压低的保护值（`src/core/collect/rate-limit.ts`）：
 
 | 参数 | 值 | 说明 |
 |------|----|----|
 | 频率控制错误码 | `200013` | `base_resp.ret == 200013` 即命中限流 |
-| 每账号每小时 | ~50 请求（保守 30） | 滑动窗口计数 |
-| 请求间隔 | 5s（保守 8s） | 同账号连续请求间 sleep |
-| 账号间间隔 | 10s | 轮换账号时的间隔 |
+| 每账号每小时 | **20 请求** | 本地 1 小时窗口计数，低于参考实测上限 |
+| 请求间隔 | **10s** | 同一采集任务翻页之间 sleep |
+| 账号间间隔 | **15s** | 换号重试前的间隔 |
 | 命中后冷却 | 7200s（2h） | 命中 200013 → 该账号 `cooldown` 2 小时 |
-| 单账号单次页数 | 增量 3 页 / 历史 20 页 | 控制单账号消耗 |
+| 默认单源页数 | **1 页 × 10 条** | `incrementalMaxPages=1`；历史上限常量 20 暂未使用 |
 
 ### 调度策略
 
 ```
 采集任务来 → 从池里挑一个 status=active 且未超小时配额的账号
-  ├─ 有 → 用它，请求间隔 sleep，计数 +1
-  ├─ 命中 200013 → 该账号置 cooldown（+2h），换下一个账号重试
-  ├─ cookie 失效（ret 表示未登录 / 跳登录页）→ 该账号置 expired，触发扫码引导
-  └─ 全部账号 cooldown/expired → 任务排队等待最早恢复的账号，或提示用户加账号
+  ├─ 有 → 发请求并计数
+  ├─ 命中 200013 → 该账号 cooldown 2h，换下一个账号重试当前页
+  ├─ cookie 失效 → 该账号 expired，换下一个账号重试当前页
+  ├─ 普通错误 → 返回 error，不自动换号
+  └─ 无可用账号 → 本次返回 no_account，不跨时间排队
 ```
+
+`earliestRecovery()` 和 `waiting_quota` 契约已经存在，但 Service 尚未把任务持久化或等待到恢复时刻。
 
 ## 五、Cookie 失效检测与扫码引导
 
 - **检测**：每次接口调用后看 `base_resp.ret`。非 0 且指示未登录（或请求被 302 到登录页）→ 判定该账号 cookie 失效，置 `expired`。
-- **引导**：renderer 弹提示"账号 X 登录已失效，请重新扫码"，点击 → main 重新打开该账号 `persist:` 分区的 BrowserWindow 走[二、扫码流程]。因分区持久化，很多时候页面还在、只需刷新确认。
-- **主动保活**：可低频探测（如每天一次轻量 searchbiz）提前发现失效，避免采集时才暴雷。
+- **引导**：账号池面板把该账号显示为“登录失效”并提供“重新登录”；点击后 main 重新打开原 `persist:` 分区。当前没有全局 toast。
+- **主动保活未实现**：当前只在用户搜索/刷新触发接口后发现失效，不做后台探测。
 
 ## 六、合规提醒
 
 - 采集自己有权限的公众号后台数据；控制频率，尊重限流。
-- 是否开源会影响合规策略（见 [overview.md](overview.md#6-未决待定项)），开源前需评估。
+- 仓库当前已经是 GitHub Public。继续公开分发或扩展采集前，应单独评估接口条款、账号权限、频率与数据使用边界。

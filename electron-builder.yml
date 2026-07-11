@@ -3,16 +3,10 @@ productName: infohub
 # 打包产物 & 元数据
 directories:
   output: release
-  buildResources: resources
 # 只打包构建产物与运行时依赖（electron-vite 输出在 out/）
 files:
   - out/**/*
   - package.json
-# 内置 skills 随安装包分发，运行时由 installSkills() 复制到用户数据目录
-extraResources:
-  - from: resources/skills
-    to: skills
-
 win:
   target:
     - target: nsis

@@ -25,12 +25,12 @@ export function normalizeRss(item: RawItem, source: Source): Article {
   const body = html ? htmlToMarkdown(html) : ''
   return {
     id: makeArticleId(source, raw.guid || raw.link || String(now)),
+    externalId: item.externalId,
     title: raw.title ?? '(无标题)',
     body,
     publishedAt: raw.published ?? now,
     sourceUrl: raw.link ?? '',
     source: { id: source.id, type: 'rss', name: source.name },
-    tags: [],
     ext: { guid: raw.guid, summary: raw.summary },
     read: false,
     archived: false,

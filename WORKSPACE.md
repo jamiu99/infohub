@@ -1,34 +1,46 @@
 # infohub — 工作区索引
 
+## 最终定位
+
+infohub 是 **数据采集 + 文件归档 + SQLite 索引 + 快速看板**。外部工具可读取数据，但项目不直接集成 AI、模型、CLI、Skill 或 Agent 工作流。
+
+当前为 `v0.1.1` 稳定化阶段。数据一致性、内容渲染、发布门禁和自动更新已完成首轮加固；接下来聚焦桌面验收、错误反馈、凭据安全、探测脚本和全文索引。唯一进度入口是 [docs/overview.md](docs/overview.md)。
+
 ## 目录速览
 
-```
+```text
 infohub/
-├── README.md / WORKSPACE.md / CLAUDE.md   # 三个入口文档
-├── start.sh / .tmux.conf                  # 一键启动（tmux）
-├── docs/                                   # 全部文档，从 overview.md 进
-│   ├── overview.md      # ★ 进度与索引主文件
-│   ├── architecture.md  # 架构、进程模型、模块边界
-│   ├── contract.md      # 数据契约 RawItem/Article/Source
-│   ├── ingest.md        # 采集层 + 公众号接口 + RSS
-│   ├── wechat-monitor.md # ★ 公众号监控：产品形态 / 三栏 UI / 调度
-│   ├── wechat-login.md  # ★ 扫码登录 / cookie / 多账号 / 限流
-│   ├── process.md       # 处理层 pipeline
-│   ├── storage.md       # 文件布局 + SQLite schema
-│   ├── agent.md         # AI CLI 集成 + 自我修改
-│   └── decisions.md     # 决策日志 ADR
-├── src/
-│   ├── main/            # Electron 主进程（后端）
-│   ├── renderer/        # 前端 UI
-│   └── core/            # 纯 TS 业务逻辑
-│       ├── contract/  ingest/  process/  store/  agent/
-└── data/                # 运行时数据（gitignore）
+├── src/main/               # Electron main：本地后端、IPC、登录、更新
+├── src/preload/            # contextBridge 白名单
+├── src/renderer/           # Vue 3 看板前端
+├── src/core/
+│   ├── collect/            # 采集编排、账号池、限流
+│   ├── ingest/             # 微信/RSS Adapter 与网络
+│   ├── process/            # 归一化和正文转换
+│   └── store/              # 文件与 SQLite
+├── src/shared/             # 数据、IPC、URL 契约
+├── test/                   # node:test 自动化测试
+├── scripts/                # 真机探测脚本（部分待修）
+├── docs/                   # 项目文档
+├── start.sh                # tmux 启动/停止入口
+└── verify.sh               # 本地与 CI 共用验证入口
 ```
 
-## 当前状态
+## 阅读顺序
 
-阶段 P0 起步：项目骨架 + 完整文档体系已建。代码尚未开始，详见 [docs/overview.md](docs/overview.md) 进度看板。
+1. [overview.md](docs/overview.md)：状态、完成度、风险和优先级。
+2. [data-interface.md](docs/data-interface.md)：外部消费者真正依赖的文件/索引接口。
+3. [architecture.md](docs/architecture.md)：前后端进程边界与数据流。
+4. [dev-log.md](docs/dev-log.md)：代码地图、验证命令、已知问题。
+5. 按需阅读 `contract / ingest / process / storage`。
 
-## 远程
+## 工程约束
 
-github jamiu99（私有），本项目由我（jamiu）开发。尚未 `gh repo create`（骨架先行，等确认后建远程）。
+- Electron main 与 renderer 通过类型化 IPC 通信；renderer 不直接访问文件、SQLite、凭据或采集接口。
+- SQLite 只用 Node 内置 `node:sqlite`，JavaScript 包管理只用 pnpm。
+- 文章文件是真相源，SQLite 是可重建加速层。
+- 默认不自动采集；所有公众号请求全局串行并使用保守限流。
+- 不加入任何模型依赖、AI CLI 驱动、Skill 安装或 Agent 调度。
+- 所有提交与 Release 共享 `verify.sh` 基线；Windows Release 额外校验 tag 与包版本一致。
+- 不在自动化会话启动常驻 Electron；从 harness 根目录用 `projects/infohub/start.sh`。
+- 改代码时同步更新 `overview.md` 和模块文档；新增或推翻决策写入 `decisions.md`。

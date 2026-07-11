@@ -7,21 +7,23 @@ const FM_DELIM = '---'
 export function articleToMarkdown(a: Article): string {
   const meta: Record<string, unknown> = {
     id: a.id,
+    externalId: a.externalId,
     title: a.title,
     publishedAt: a.publishedAt,
     sourceUrl: a.sourceUrl,
     source: a.source,
-    summary: a.summary ?? null,
-    score: a.score ?? null,
-    staleness: a.staleness ?? null,
-    provenance: a.provenance ?? null,
-    tags: a.tags ?? [],
     ext: a.ext ?? {},
     read: !!a.read,
     archived: !!a.archived,
     createdAt: a.createdAt,
     updatedAt: a.updatedAt
   }
+  // 只为兼容已有数据/外部注释；新采集文章不写空占位字段。
+  if (a.summary !== undefined) meta.summary = a.summary
+  if (a.score !== undefined) meta.score = a.score
+  if (a.staleness !== undefined) meta.staleness = a.staleness
+  if (a.provenance !== undefined) meta.provenance = a.provenance
+  if (a.tags !== undefined) meta.tags = a.tags
   const lines = Object.entries(meta).map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
   return `${FM_DELIM}\n${lines.join('\n')}\n${FM_DELIM}\n\n${a.body ?? ''}`
 }
@@ -45,19 +47,26 @@ export function parseArticleMarkdown(text: string, filePath: string): Article {
     }
   }
   const source = (meta.source as Article['source']) ?? { id: '', type: '', name: '' }
+  const sourceUrl = String(meta.sourceUrl ?? '')
+  const ext = (meta.ext as Record<string, unknown>) ?? {}
+  // v0.1.0 文件没有 externalId：wechat 用 sourceUrl，RSS 优先用 guid，最后退回文章 id。
+  const externalId =
+    String(meta.externalId ?? (source.type === 'rss' ? ext.guid : undefined) ?? sourceUrl) ||
+    String(meta.id ?? '')
   return {
     id: String(meta.id ?? ''),
+    externalId,
     title: String(meta.title ?? ''),
     body,
     publishedAt: Number(meta.publishedAt ?? 0),
-    sourceUrl: String(meta.sourceUrl ?? ''),
+    sourceUrl,
     source,
     summary: (meta.summary as string) ?? undefined,
     score: (meta.score as number) ?? undefined,
     staleness: (meta.staleness as Article['staleness']) ?? undefined,
     provenance: (meta.provenance as Article['provenance']) ?? undefined,
-    tags: (meta.tags as string[]) ?? [],
-    ext: (meta.ext as Record<string, unknown>) ?? {},
+    tags: Array.isArray(meta.tags) ? (meta.tags as string[]) : undefined,
+    ext,
     read: !!meta.read,
     archived: !!meta.archived,
     filePath,

@@ -2,8 +2,8 @@
 // 账号池/限流/换号重试这些 wechat 专属逻辑都收在这里，collector 不再关心。
 import type { Source, RawItem } from '../../shared/contract'
 import type { SourceAdapter, DiscoverResult, FetchOutcome } from './adapter'
-import type { AccountPool } from '../agent/account-pool'
-import { RATE_LIMIT } from '../agent/rate-limit'
+import type { AccountPool } from '../collect/account-pool'
+import { RATE_LIMIT } from '../collect/rate-limit'
 import { searchBiz, listArticlesPage, toRawItem } from './wechat'
 import { fetchArticleBody } from '../process/content'
 

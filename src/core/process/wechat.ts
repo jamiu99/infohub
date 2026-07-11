@@ -1,5 +1,5 @@
 // 处理层：wechat RawItem → 统一 Article。见 docs/process.md、docs/contract.md。
-// 阶段 1 归一化（必做）：字段映射 + 时间 UTC。正文抓取/AI 增强为后续阶段。
+// 确定性归一化：字段映射 + UTC 时间；正文由采集管线后续补全。
 import type { RawItem, Article, Source } from '../../shared/contract'
 import { registerNormalizer } from './normalize'
 
@@ -18,12 +18,12 @@ export function normalizeWechat(item: RawItem, source: Source): Article {
   const createTime = Number(raw.create_time ?? 0)
   return {
     id: makeArticleId(source, raw),
+    externalId: item.externalId,
     title: String(raw.title ?? '(无标题)'),
     body: '', // 正文待后续阶段抓 link 页面填充
     publishedAt: createTime ? createTime * 1000 : now, // 微信是秒 → UTC ms
     sourceUrl: String(raw.link ?? ''),
     source: { id: source.id, type: 'wechat', name: source.name },
-    tags: [],
     ext: {
       fakeid: (source.config as { fakeid?: string }).fakeid,
       author_name: raw.author_name,

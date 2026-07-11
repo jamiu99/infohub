@@ -22,7 +22,7 @@ interface SourceAdapter {
 - `WechatAdapter` 内部持有账号池 + 限流 + 换号重试（`src/core/ingest/wechat-adapter.ts`）；
 - `RssAdapter` 公开抓取、无鉴权（`src/core/ingest/rss-adapter.ts`）。
 
-`Collector`（`src/core/agent/collector.ts`）只面向此接口：`AdapterRegistry.get(type)` 取 adapter →
+`Collector`（`src/core/collect/collector.ts`）只面向此接口：`AdapterRegistry.get(type)` 取 adapter →
 `fetch` → 去重 → `getNormalizer(type)` 归一化 → `enrichBody` 补正文 → 存库。全局串行锁保护。
 
 归一化按 type 注册（`src/core/process/normalize.ts`）：`normalizeWechat` / `normalizeRss` 各自 `registerNormalizer`。
@@ -60,7 +60,9 @@ cookie: <账号 cookie>
 
 ### wechat adapter config
 
-`Source.config` 里存：`{ fakeid: string }`（由 discover 得到）。账号选择交给调度层从账号池取，adapter 本身无状态。
+`Source.config` 里存：`{ fakeid: string, alias?: string, signature?: string }`（由 discover 得到）。账号不绑定到 Source；`WechatAdapter` 持有共享 `AccountPool` 引用并在每次请求前选择账号。
+
+当前默认只拉 1 页 × 10 条；不做定时轮询。搜索与采集都经过 Collector 全局串行锁，实际保护参数见 [wechat-login.md](wechat-login.md#四多账号与限流)。
 
 ## RSS（已实现）
 
@@ -70,7 +72,8 @@ cookie: <账号 cookie>
 - 归一化：`normalizeRss` 用 entry 的 `content:encoded`/`content`/`summary` 作正文（HTML→markdown），无需 `enrichBody`。
 - 无鉴权、无限流。`Source.config = { feedUrl }`。
 - **已用真实 feed（Hacker News）端到端验证**：discover→fetch 20 条→归一化出标题/正文/时间。
+- RSS 与微信目前共用 Collector 全局串行锁；这是安全优先的简单实现，不代表 RSS 本身有配额限制。
 
-## 未来信源：AI 写 adapter
+## 新增信源
 
-新信源交给 AI：给它 `SourceAdapter` 接口 + `RawItem` 契约 + 目标信源的接口/页面样本，让它生成一个 adapter。这是产品 AI Native 的杠杆点，受控流程见 [agent.md](agent.md#ai-自我修改受控)。
+接入新信源的固定步骤：实现 `SourceAdapter`、实现并注册 normalizer、在 Service 注册 adapter、补 discover/fetch/normalize/去重测试。生成代码使用什么开发工具不属于 infohub 产品能力；运行时绝不加载或执行外部生成代码。

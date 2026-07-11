@@ -1,63 +1,119 @@
-# 架构
+# 架构与模块边界
 
-> 上级：[overview.md](overview.md) · 相关：[contract.md](contract.md)
+> 上级：[overview.md](overview.md) · 数据接口：[data-interface.md](data-interface.md) · 契约：[contract.md](contract.md)
 
-## 进程模型（Electron）
+## 运行时分层
 
+```text
+┌──────────────────────────────────────────────────────────┐
+│ Electron main（本地后端）                                 │
+│ Service 装配 / IPC / 扫码窗口 / 文件 / SQLite / 自动更新  │
+└──────────────────────────┬───────────────────────────────┘
+                           │ ipcMain / ipcRenderer
+┌──────────────────────────▼───────────────────────────────┐
+│ preload                                                  │
+│ contextBridge 只暴露 InfohubApi 白名单                    │
+└──────────────────────────┬───────────────────────────────┘
+                           │ window.api
+┌──────────────────────────▼───────────────────────────────┐
+│ Electron renderer（Vue 3 看板前端）                       │
+│ 信源 / 文章 / 账号配额 / 采集进度 / 更新提示              │
+└──────────────────────────────────────────────────────────┘
 ```
-┌─────────────────────────────────────────────┐
-│ Electron main（Node，后端）                   │
-│  - 调度采集/处理/存储 core 模块                 │
-│  - 起 AgentCLI 子进程（PTY / stream-json）      │
-│  - 管理登录用 BrowserWindow（抓 cookie/token）  │
-│  - 唯一能碰文件系统 & SQLite 的层               │
-└───────────────┬───────────────────────────────┘
-                │ IPC（contextBridge 暴露白名单 API）
-┌───────────────▼───────────────────────────────┐
-│ Electron renderer（前端 UI）                    │
-│  - 信源管理 / 文章列表 / 简报 / 扫码引导         │
-│  - 只发意图，不直接碰 fs/network                │
-└─────────────────────────────────────────────┘
+
+renderer 使用 `contextIsolation: true`、`nodeIntegration: false`、`sandbox: true`，不直接访问文件、SQLite、登录凭据或采集网络。所有操作经 [src/shared/ipc.ts](../src/shared/ipc.ts) 进入 main。
+
+当前是一个桌面仓库和发布物，但运行时前后端边界明确。如果未来增加远程服务，必须建立独立后端项目和 API，不能把服务逻辑塞进 renderer。
+
+## 核心数据流
+
+```text
+Source
+  │
+  ▼
+SourceAdapter.fetch() ──▶ RawItem
+                              │
+                              ├─▶ raw/...json
+                              ▼
+                         Normalizer
+                              │
+                     可选 enrichBody()
+                              ▼
+                           Article
+                              │
+                 ┌────────────┴────────────┐
+                 ▼                         ▼
+        articles/...md               index.sqlite
+        内容与元数据源                 查询/状态/去重
+                 │
+         ┌───────┴────────┐
+         ▼                ▼
+      Vue 看板       外部只读消费者
 ```
 
-**前后端分离**：main 是后端、renderer 是前端，通过 IPC 通信，renderer 无 Node 权限（`contextIsolation: true`）。符合"前后端分离"约束——两层职责独立，未来 renderer 可换 Web 前端。
+外部消费者不进入 App 进程，也没有 SDK/插件协议。它们只依赖普通文件和 SQLite，见 [data-interface.md](data-interface.md)。
 
-## core 模块边界（`src/core/`）
+## 目录与职责
 
-core 是纯 TS 逻辑，**不依赖 Electron API**，可脱离 App 单独跑（方便测试 / 未来给通用 agent 当库调）。
-
-| 模块 | 职责 | 输入 → 输出 | 禁止 |
-|------|------|-------------|------|
-| `contract/` | 契约与类型 | — | 任何逻辑 |
-| `ingest/` | 原始采集 | Source 配置 → `RawItem[]` | 清洗、写正式库 |
-| `process/` | 二次处理 | `RawItem` → `Article` | 采集、决定存哪 |
-| `store/` | 落地与检索 | `Article` → 文件+索引 | 采集、处理 |
-| `agent/` | 驱动 AI CLI | 任务 → CLI 子进程 | 直接改核心逻辑（除 Beta 沙盒） |
-
-模块间**只经契约传递**，禁止跨模块直接读对方内部实现。这样任一模块可独立替换。
-
-## 目录布局
-
+```text
+src/
+├── main/
+│   ├── index.ts             # App/主窗口入口
+│   ├── service.ts           # 依赖装配与 IPC handler
+│   ├── data-guide.ts        # 生成 INFOHUB_DATA.md
+│   ├── wechat-login.ts      # 扫码 BrowserWindow
+│   ├── secrets.ts           # safeStorage 凭据持久化
+│   └── updater.ts           # electron-updater
+├── preload/index.ts         # contextBridge 实现
+├── renderer/                # Vue 3 看板
+├── shared/
+│   ├── contract.ts          # Source / RawItem / Article
+│   ├── ipc.ts               # InfohubApi 与事件
+│   ├── wechat.ts            # 微信账号/返回类型
+│   └── url.ts               # http(s) URL 白名单
+└── core/
+    ├── collect/             # Collector、账号池、限流
+    ├── ingest/              # Adapter、微信、RSS、网络容错
+    ├── process/             # normalizer、正文提取/转换
+    ├── store/               # Markdown 与 SQLite
+    └── paths.ts             # data/ 路径契约
 ```
-infohub/
-├── README.md / start.sh / .tmux.conf
-├── docs/                  # 全部文档（本目录）
-├── src/
-│   ├── main/              # Electron 主进程（后端入口、IPC、窗口）
-│   ├── renderer/          # 前端 UI
-│   └── core/              # 纯 TS 业务逻辑（可独立测试）
-│       ├── contract/      # 数据契约
-│       ├── ingest/        # 采集层
-│       ├── process/       # 处理层
-│       ├── store/         # 存储层
-│       └── agent/         # AI CLI 集成
-└── data/                  # 运行时数据（gitignore），见 storage.md
-```
+
+## 模块约束
+
+| 边界 | 允许 | 禁止 |
+|------|------|------|
+| renderer | 调 `window.api`、管理视图状态 | Node API、SQLite、凭据、直接采集 |
+| main | 装配 core、IPC、Electron 能力 | 业务算法堆进 handler、模型调用 |
+| collect | 串行任务、账号选择、限流 | 理解 UI、写正文格式 |
+| ingest | 获取原始数据、保留载荷 | 写正式 Article、判断内容价值 |
+| process | `RawItem → Article`、正文补全 | 账号调度、存储路径、模型增强 |
+| store | 文件/索引持久化与查询 | 发网络请求、理解具体信源协议 |
+| 外部消费者 | 只读公开数据接口 | 读取 `secrets/`、依赖 App 内部代码 |
+
+## 外部内容安全
+
+公众号/RSS 正文是不可信输入：
+
+- HTML 转 Markdown 时先剥离未支持标签。
+- renderer 只生成有限标签，只接受绝对 http(s) URL。
+- DOMPurify allowlist 二次净化。
+- CSP 只允许本地脚本，禁止 object/frame/form/worker。
+- main 只把 http(s) 外链交给系统浏览器。
 
 ## 技术栈
 
-- Electron + TypeScript
-- 前端框架：Vue3（待定，与团队其余项目一致）
-- 存储：Node 内置 `node:sqlite`（**禁止三方 sqlite 库**，遵全局规范）+ 文件系统
-- 包管理：pnpm
-- AI CLI：Claude Code (`claude -p` / stream-json)、Codex 等，见 [agent.md](agent.md)
+- Electron 43、electron-vite 2、Vite 5、TypeScript 5.7
+- Vue 3.5、DOMPurify 3
+- Node 内置 `node:sqlite`
+- pnpm 10
+- Node `node:test` + `tsx`
+- electron-builder、electron-updater、GitHub Actions
+
+## 当前架构债务
+
+- Service 后台任务缺统一错误事件、取消和重试。
+- `scripts/` 未纳入 TypeScript 工程，已有接口漂移。
+- 数据同步仍是同步目录扫描；规模扩大后需 mtime/manifest 增量方案。
+- FTS5、正式 rebuild/export 命令尚未实现。
+- renderer sandbox/CSP 仍需真实桌面点击验收。

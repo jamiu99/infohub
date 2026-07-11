@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell, Menu, session } from 'electron'
 import { join } from 'node:path'
 import { Service } from './service'
 import { initUpdater } from './updater'
+import { isHttpUrl } from '../shared/url'
 
 let service: Service | null = null
 
@@ -29,13 +30,13 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   })
 
   // 外链用系统浏览器打开
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    if (isHttpUrl(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
 
@@ -72,3 +73,5 @@ app.on('window-all-closed', () => {
     app.quit()
   }
 })
+
+app.on('before-quit', () => service?.stop())

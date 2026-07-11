@@ -1,115 +1,153 @@
-# infohub — 总览与进度主文件
+# infohub — 总览与进度
 
-> 本文件是 infohub 的**唯一进度入口**。所有子文档从这里派生，改任何模块都要回来更新对应状态行。
-> 铁律：**代码和文档同步更新，禁止版本分离**。每完成一个可验证的点，就在这里勾掉并链到细节。
+> 本文件是唯一进度入口。模块文档解释实现，这里只维护产品边界、可验证状态、风险和下一步。
 
-最后更新：2026-07-06 · 阶段：**P1 公众号监控核心链路已实现**（typecheck/build/12 项测试通过，待真机扫码联调）
+最后更新：**2026-07-12** · 阶段：**v0.1.1 发布与稳定化**
 
----
+## 1. 最终产品决定
 
-## 1. 一句话定位
+infohub 是一个**本地数据获取与索引工具**，也是一个快速看板。
 
-本地 Electron App，采集微信公众号/RSS 等信源到本地 → 二次处理成统一结构 → 文件为源 + SQLite 索引归档 → 接入 AI CLI 产出简报/知识库。
+它负责：
 
-## 2. 关键技术决策（已锁定）
+- 从微信公众号、RSS/Atom 等信源获取数据。
+- 保留 Raw 原始载荷，归一化为稳定 Article 文件。
+- 用 SQLite 建立可重建的查询、状态与去重索引。
+- 让用户快速浏览、筛选、标记和归档。
+- 通过明确的文件系统契约，让任何外部工具直接读取数据。
 
-| 决策 | 选型 | 理由 | 细节 |
-|------|------|------|------|
-| 桌面框架 | **Electron** | JS/TS 生态、Node 子进程、BrowserWindow 内嵌官方登录页抓 cookie 最顺 | [architecture.md](architecture.md) |
-| 采集层语言 | **Node/TS** | 全栈统一 TS，无跨语言进程通信 | [ingest.md](ingest.md) |
-| 存储 | **文件为源 + SQLite 索引** | 数据即文件，通用 agent 可直接读目录；SQLite 只做索引/检索/去重/状态 | [storage.md](storage.md) |
-| 公众号登录 | **内嵌 BrowserWindow 扫码** | 不模拟登录接口、不碰验证码风控；扫完从 session 抓 cookie+token | [wechat-login.md](wechat-login.md) |
-| AI 底座 | **接入外部 Agent CLI**（Claude Code / Codex） | 不自造 agent loop；通过 PTY/stream-json 驱动，数据即文件天然可被 agent 操作 | [agent.md](agent.md) |
+它不负责：
 
-## 3. 模块拆分（彻底解耦，各自独立）
+- 调用模型 API 或本地模型。
+- 启动 Claude Code、Codex 或其他 AI CLI。
+- 安装 Skill、插件或 Agent 工作流。
+- 生成摘要、简报、embedding、知识库或 RAG。
+- 在 App 内判断“信息价值”。
 
-数据在模块间只通过**统一契约 + 文件**流动，任一模块可单独替换/测试。
+AI 可以是数据消费者，但与普通脚本、搜索程序没有产品层区别。唯一集成面是 [data-interface.md](data-interface.md) 定义的文件和索引，不是模型协议。
 
+## 2. 当前基线
+
+| 项目 | 当前事实 |
+|------|----------|
+| 仓库 | `jamiu99/infohub`，GitHub Public，默认分支 `main` |
+| 当前源码版本 | `v0.1.1`；本文件所在提交为发布基线 |
+| 上个发布版本 | `v0.1.0`（提交 `750e139`，2026-07-06） |
+| 自动检查 | `pnpm typecheck` ✅ · `pnpm test:core` ✅（35/35）· `pnpm build` ✅ |
+| 依赖审计 | `pnpm audit --prod` ✅，未发现已知生产依赖漏洞 |
+| CI | `main`/PR 运行 `verify.sh`；tag Release 在 Windows 重跑完整门禁并校验版本 |
+
+当前定位：**核心链路可运行、可构建、已有 Windows Release，但仍是个人试用级 MVP，尚未完成桌面产品验收。**
+
+## 3. 数据流
+
+```text
+微信公众号 / RSS
+        │
+        ▼
+SourceAdapter.fetch() ──▶ RawItem JSON（原始载荷）
+        │
+        ▼
+Normalizer + 正文补全 ──▶ Article Markdown（真相源）
+        │
+        ├──────────────▶ index.sqlite（派生索引）
+        │
+        ├──────────────▶ Vue 看板（快速浏览）
+        │
+        └──────────────▶ 外部只读消费者（脚本 / 搜索工具 / AI）
 ```
-信源 ──▶ [ingest 采集]  原始抓取（公众号爬虫 / RSS / 未来 adapter）
-              │  产出 RawItem（原始载荷，未清洗）
-              ▼
-        [process 处理]  清洗 / AI 二次转写 / 打分 / 溯源 / 老化判断
-              │  产出 Article（统一结构：标题/正文/时间/来源URL/…/可拓展字段）
-              ▼
-        [store 存储]    文件为源（md+json）+ SQLite 索引
-              │
-              ▼
-        [agent AI 基建]  Claude Code / Codex CLI 在数据目录上工作 → 简报/知识库
-```
 
-各模块契约见 [contract.md](contract.md)。
+App 每次启动会在数据根目录生成 `INFOHUB_DATA.md`，让消费者不依赖项目源码也能理解目录和稳定字段。
 
-## 4. 进度看板
+## 4. 已实现
 
-图例：⬜ 未开始 · 🟡 进行中 · ✅ 完成 · ⏸ 暂缓
+### 获取与处理
 
-### P0 — Agent 框架 + 信源契约
-- ✅ 项目骨架 + 文档体系（electron-vite + Vue3 + TS，typecheck/build 通过）
-- ✅ 数据契约锁定（RawItem / Article / Source）→ `src/shared/contract.ts` · [contract.md](contract.md)
-- ✅ **SourceAdapter 抽象**：统一采集接口 + 注册表，collector 面向接口，信源专属逻辑封装在各 adapter → [ingest.md](ingest.md)
-- ✅ **wechat adapter**（账号池+限流内封）+ **rss adapter**（公开抓取，真实 HN feed 验证通过）
-- ✅ store 落地（文件布局 + SQLite schema，往返测试通过） → `src/core/store/` · [storage.md](storage.md)
-- 🟡 Agent CLI 接入：探索性实现已本机跑通（`src/main/agent-cli.ts`），实测定稿走 spawn（见 agent.md），未接入主流程
+- ✅ 微信公众号官方页面扫码登录，每个账号独立 `persist:` 分区。
+- ✅ 多账号池、小时配额、冷却/失效状态和重新登录。
+- ✅ `searchbiz` 搜号、`appmsg` 拉文章；默认 20 请求/账号/小时、一次 1 页。
+- ✅ 全局串行锁、无自动轮询，只允许用户主动刷新。
+- ✅ RSS/Atom URL 试探、解析、超时重试和归一化。
+- ✅ Adapter + normalizer 注册表，新信源边界清晰。
+- ✅ 公众号正文抓取和轻量 HTML → Markdown。
 
-### P1 — 公众号监控（★ 当前主线，几十个号量级）
-产品形态/UI/UX/调度见 [wechat-monitor.md](wechat-monitor.md)。**核心链路已实现并通过 12 项测试。**
-- ✅ 扫码登录 BrowserWindow + cookie/token 抓取 → `src/main/wechat-login.ts` · [wechat-login.md](wechat-login.md)
-- ✅ 采集核心：searchbiz + appmsg，复用 refs 接口 → `src/core/ingest/wechat.ts` · [ingest.md](ingest.md#微信公众号)
-- ✅ 多账号池 + 配额/限流调度器（200013，轮换/冷却/窗口滚动） → `src/core/agent/account-pool.ts`
-- ✅ 关注列表 + 手动刷新（**已关闭自动轮询**，见下安全约束） → `src/main/service.ts`
-- ✅ 三栏监控 UI（源列表/文章流/详情） → `src/renderer/src/components/`
-- ✅ 配额可视化 + 登录失效引导 UX → `QuotaPanel.vue`
-- ✅ cookie 失效状态机 + 扫码引导 → account-pool + relogin IPC
-- ✅ 正文抓取（抓 link 页面 → #js_content → markdown） → `src/core/process/content.ts`
-- ✅ **安全加固**：关自动轮询（纯手动）+ 采集全局串行锁 + 频率压到极保守（20/时·10s 间隔·单次1页）
-- ✅ 真机联调关键验证：已登 2 个号（独立分区）；**采集链路端到端跑通**（searchbiz+appmsg 真实拉到 523 篇文章，未触限流）
-- ✅ 多账号模型定稿：不同微信号 = 各自独立分区（非"切换账号"），见 [wechat-login.md](wechat-login.md)
-- ✅ 去掉 Electron 默认菜单栏（File/Edit/View…）
-- ⬜ **账号池明文存储需修**：本机 safeStorage 无 keychain 走了明文兜底（见 dev-log 待修）
-- ⬜ UI 全流程点击验证 + UI 美化（用户反馈"丑"）
+### 文件、索引与看板
 
-### 安全约束（应 jamiu 要求，硬性）
-- **默认不自动采集**：无定时轮询，只在用户手动点刷新时发请求。
-- **全局串行**：`Collector` 有互斥锁，任何时刻只有一个 wechat 请求链，UI 连点也排队。
-- **极保守频率**：联调期 `rate-limit.ts` 压到远低于实测上限，保护真实账号。
+- ✅ Raw JSON、Article Markdown、`sources.json` 和 SQLite 索引。
+- ✅ schema v2：`externalId` 入文件、旧状态迁移、原子写、路径防逃逸。
+- ✅ 启动时完整重建 `articles/seen_items`，运行中同步外部文件变化。
+- ✅ 三栏 Vue 看板：信源、文章流、正文、筛选、配额、添加公众号/RSS。
+- ✅ 未读、归档、按源清理和最多 500 条倒序列表。
+- ✅ 自动生成 `INFOHUB_DATA.md` 数据说明。
 
-### P2 — AI 处理（改为 Skill 形态，用户确认）
-方向：不做 App 硬编码功能，做成 **Claude Code Skills**——用户在数据目录自己跑 `claude`，agent 自动发现并处理。见 [agent.md](agent.md#-skill-机制定稿2026-07-06已实测跑通)。
-- ✅ 调研 skill 机制 + 实测跑通闭环
-- ✅ **summarize skill**（摘要+价值打分+标签，回写 frontmatter）——真实文章验证通过
-- ✅ **briefing skill**（读近期文章→价值排序→软文剔除→分类+「为什么重要」→写 briefings/）——真机验证：正确出头条/剔广告/写洞察式 TL;DR
-- ✅ App 首启安装内置 skills 到 `data/.claude/skills/` + 写数据目录 README 引导
-- ⬜ 后续 skill：知识库索引 / 实体抽取
-- 简报方法论沉淀见 [briefing.md](briefing.md)
+### 安全与发布
 
-### P3 — 知识库 / Wiki
-- ⬜ 全文检索（SQLite FTS5）+ 向量检索
-- ⬜ 实体抽取 / 关联 / 对话式查询
+- ✅ 文本转义、绝对 http(s) URL 白名单、DOMPurify allowlist、CSP。
+- ✅ renderer sandbox + contextIsolation + preload IPC 白名单。
+- ✅ Windows NSIS Release 与 `electron-updater`。
+- ✅ 项目 `verify.sh`、`main`/PR CI 与 Windows Release 完整门禁。
 
-### P4 — 开发者模式 / AI 自我修改（Beta）
-- ⬜ 沙盒 + AI 生成 SourceAdapter 流程 → [agent.md](agent.md#ai-自我修改受控)
+## 5. 已移除并禁止回归
 
-## 5. 文档地图
+- ✅ 删除内置 `summarize` / `briefing` Skills 和打包资源。
+- ✅ 删除实验性 Claude CLI 驱动、Agent 类型和对应测试。
+- ✅ 删除 App 启动时的 Skill 安装逻辑。
+- ✅ 采集调度从 `src/core/agent/` 迁到 `src/core/collect/`。
+- ✅ 新采集 Article 不再写 `summary/score/tags` 等空占位；旧值只做兼容保留。
 
-| 文档 | 讲什么 |
-|------|--------|
-| [architecture.md](architecture.md) | 整体架构、进程模型、目录布局、模块边界 |
-| [contract.md](contract.md) | 数据契约：RawItem / Article / Source 字段定义 |
-| [ingest.md](ingest.md) | 采集层：adapter 接口、公众号接口、RSS |
-| [wechat-monitor.md](wechat-monitor.md) | ★ 公众号监控：产品形态、三栏 UI/UX、轮询调度 |
-| [wechat-login.md](wechat-login.md) | 扫码登录、cookie/token 抓取、多账号、限流 |
-| [process.md](process.md) | 处理层：清洗、AI 转写、打分、溯源、老化 |
-| [storage.md](storage.md) | 存储：文件布局 + SQLite 索引 schema |
-| [agent.md](agent.md) | AI 基建：CLI 集成、stream-json、自我修改约束 |
-| [decisions.md](decisions.md) | 决策日志（ADR）：为什么这么选 |
-| [briefing.md](briefing.md) | 每日简报（P2）设计：技术底座 + 方法论 + MVP 方案 |
-| [release.md](release.md) | Windows 发布 + 自动更新（CI 打包、electron-updater） |
-| [dev-log.md](dev-log.md) | 开发日志 & 代码地图（文档↔实现映射、如何运行/测试） |
+升级前用户目录里已有的 `.claude/skills/`、`briefings/` 或旧 README 不会被自动删除，以避免破坏用户文件；infohub 已完全忽略它们。
 
-## 6. 未决待定项
+## 6. 尚未闭环
 
-- AI Provider 抽象层：云端 Claude 为主，是否支持本地模型？
-- 多设备同步：是否做（影响存储方案）
-- 是否开源（影响公众号采集合规策略）
-- 简报推送渠道：应用内 / 邮件 / Telegram / 系统通知
+### P0 — 凭据安全
+
+- ⬜ 无 OS keychain 时账号池仍静默明文落盘；公开分发前需告警、格式版本和迁移/恢复策略。
+
+### P1 — 稳定性与验收
+
+- ⬜ 人工验收扫码、公众号/RSS 添加、刷新、阅读、归档、重登。
+- ⬜ 验证 sandbox preload、CSP 下公众号图片和系统外链。
+- ⬜ 后台采集错误缺少明确 UI 反馈；quota waiting 状态只有占位。
+- ⬜ 修复 `probe-add.mts` / `probe-pipeline.mts` 并纳入 typecheck。
+- ⬜ 在 Windows 人工安装 `v0.1.1`，验收扫码、RSS、阅读、归档、图片和外链。
+- ⬜ 从已安装的 `v0.1.0` 自动更新到 `v0.1.1`，确认重启安装和旧数据迁移。
+
+### P2 — 数据工具能力
+
+- ⬜ SQLite FTS5 全文索引与搜索 UI。
+- ⬜ 正式 `rebuild-index`、数据导出和数据目录打开入口。
+- ⬜ 来源/日期/状态组合筛选和采集结果统计。
+- ⬜ 复杂公众号排版、表格、音视频等正文转换。
+- ⬜ 更多 SourceAdapter；不加入模型、embedding 或向量服务。
+
+## 7. 推荐顺序
+
+1. 安装 `v0.1.1`，完成 Windows 桌面点击和跨版本更新验收。
+2. 修 probe 脚本、错误反馈与凭据告警。
+3. 用后续补丁版本再次复验自动更新。
+4. 实现 FTS5、搜索与正式数据维护命令。
+5. 再扩展更多纯数据 SourceAdapter。
+
+## 8. 文档地图
+
+| 文档 | 内容 |
+|------|------|
+| [data-interface.md](data-interface.md) | 文件、SQLite、稳定字段和消费者约定 |
+| [architecture.md](architecture.md) | 进程模型、模块边界、数据流 |
+| [contract.md](contract.md) | Source / RawItem / Article / DiscoverResult |
+| [ingest.md](ingest.md) | Adapter、公众号接口、RSS |
+| [process.md](process.md) | 归一化与正文处理 |
+| [storage.md](storage.md) | 文件布局、schema v2、迁移和重建 |
+| [wechat-monitor.md](wechat-monitor.md) | 看板产品形态和手动采集 |
+| [wechat-login.md](wechat-login.md) | 扫码、账号池和限流 |
+| [release.md](release.md) | Windows 发布与自动更新 |
+| [dev-log.md](dev-log.md) | 代码地图、验证与问题清单 |
+| [decisions.md](decisions.md) | ADR 决策日志 |
+
+## 9. 不可妥协约束
+
+- 文件是真相源，SQLite 是派生索引。
+- SQLite 只用 Node 内置 `node:sqlite`；JavaScript 只用 pnpm。
+- renderer 不直接访问文件、SQLite、凭据或采集网络。
+- 默认手动采集、全局串行、保守限流。
+- 不直接集成任何 AI 能力；外部消费者只依赖数据接口。

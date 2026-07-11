@@ -1,8 +1,8 @@
 // 账号池/限流调度核心逻辑测试（纯逻辑，无 Electron）。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { AccountPool } from '../src/core/agent/account-pool.ts'
-import { RATE_LIMIT } from '../src/core/agent/rate-limit.ts'
+import { AccountPool } from '../src/core/collect/account-pool.ts'
+import { RATE_LIMIT } from '../src/core/collect/rate-limit.ts'
 import type { WxAccount } from '../src/shared/wechat.ts'
 
 function acc(id: string, over: Partial<WxAccount> = {}): WxAccount {

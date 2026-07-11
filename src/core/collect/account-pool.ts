@@ -1,4 +1,4 @@
-// 账号池 + 限流调度。多账号轮换绕开单账号每小时配额。见 docs/wechat-login.md。
+// 账号池 + 限流调度。多账号轮换分摊单账号每小时配额。见 docs/wechat-login.md。
 // 纯内存状态管理 + 持久化回调，不依赖 Electron（可独立测试）。
 import type { WxAccount, WxAccountView, WxCallResult } from '../../shared/wechat'
 import { RATE_LIMIT } from './rate-limit'

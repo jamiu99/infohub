@@ -32,13 +32,14 @@ export type Staleness = 'fresh' | 'aging' | 'stale'
 /** 统一结构 —— 系统核心数据结构，所有信源归一到它 */
 export interface Article {
   id: string
+  externalId: string // 信源内去重键；写入文件，保证 seen_items 可重建
   title: string
   body: string // markdown 正文
   publishedAt: number
   sourceUrl: string
   source: { id: string; type: string; name: string }
 
-  // 处理层产出的增强字段（可空）
+  // 兼容旧文件/外部工具的可选注释；infohub 本身不生成这些字段
   summary?: string
   score?: number
   staleness?: Staleness

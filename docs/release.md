@@ -2,44 +2,78 @@
 
 > 上级：[overview.md](overview.md)
 
-Windows 安装包由 **GitHub Actions 在 Windows 云构建机**编译并发布到 GitHub Release；App 内置
-**electron-updater** 自动检查更新。你只需下载一次，之后 App 自动更新。
+## 当前发布状态
 
-## 一次性发布流程
+2026-07-12 的发布基线：
 
-```bash
-# 1. 改版本号（package.json 的 version）
-# 2. 打 tag 并推送 —— 触发 CI
-git tag v0.1.0
-git push origin v0.1.0
+- 当前源码版本为 `v0.1.1`，发布说明见 [releases/v0.1.1.md](releases/v0.1.1.md)。
+- 上个 GitHub Release `v0.1.0` 已于 2026-07-06 正式发布，产物、blockmap 与 `latest.yml` 齐全。
+- Release workflow 已在 `v0.1.1` 补齐版本校验、typecheck 和核心测试。
+- 尚无 Windows 安装人工验收或跨版本自动更新验收记录，不能把“存在更新代码”表述为“升级闭环已验收”。
+
+仓库和 Release 当前是 **Public**，`electron-updater` 可直接读取公开 Release，无需客户端 token。
+
+## 发布链路
+
+推送 `v*` tag 会触发 `.github/workflows/release.yml`：
+
+```text
+checkout
+  → pnpm 10 / Node 22
+  → pnpm install --frozen-lockfile
+  → 校验 tag = v + package.json.version
+  → pnpm typecheck
+  → pnpm test:core
+  → pnpm build
+  → electron-builder --win --publish always
+  → GitHub Release（releaseType: release）
 ```
 
-推 `v*` tag → `.github/workflows/release.yml` 在 `windows-latest` 上：
-`pnpm install → pnpm build（electron-vite）→ electron-builder --win --publish always`
-→ 产出 NSIS 安装包 + `latest.yml`（更新元数据）发布到 [Release](https://github.com/jamiu99/infohub/releases)。
+普通 `main` push 和 pull request 也会在 Ubuntu 上执行同一个 `./verify.sh` 完整基线。
 
-首个版本 CI 会创建 draft/release；到 Release 页面下载 `infohub-Setup-<版本>.exe` 安装。
+## 发布下一版本
 
-## 自动更新怎么工作
-
-- `src/main/updater.ts`：启动 5 秒后 `checkForUpdates()`，有新版**自动后台下载**，
-  下载完通过 `update-status` 事件通知前端，`UpdateBanner.vue` 弹「重启并更新」。
-- 退出时静默安装（`autoInstallOnAppQuit`）。
-- 更新源 = 公开仓的 GitHub Release（`electron-builder.yml` 的 `publish` 配置），**无需 token**。
-
-## 首次安装的提示
-
-未做代码签名（个人使用）→ Windows SmartScreen 首次会提示"未知发行者"，点
-**"更多信息" → "仍要运行"** 即可。要消除提示需 Windows 代码签名证书（年费，暂不做）。
-
-## 本地打包（可选，调试用）
+不要复用旧 tag。例如发布 `0.1.2`：
 
 ```bash
-pnpm pack:win     # 只打包不发布，产物在 release/
+# 1. 更新版本、文档和 release notes
+pnpm version 0.1.2 --no-git-tag-version
+./verify.sh
+
+# 2. 确认工作树、提交和远端正确后再创建 tag
+git tag v0.1.2
+git push origin main
+git push origin v0.1.2
 ```
-注意：在 Linux/WSL 上交叉编译 Windows 包不可靠，正式发布走 CI（Windows 原生构建）。
 
-## 版本号约定
+约束：`package.json.version` 必须与 tag 去掉 `v` 后完全一致；Release workflow 会自动阻断不一致发布。
 
-`package.json` 的 `version` 与 git tag 必须一致（tag `v0.1.0` ↔ version `0.1.0`）。
-electron-updater 靠版本号比较决定是否有新版，务必每次发布前 +1。
+Release notes 必须明确数据格式变化、迁移方式与已知限制；如曾包含直接 AI 集成，还要说明相关资源是否被移除或只被忽略。
+
+## App 内自动更新
+
+`src/main/updater.ts` 在打包环境启动 5 秒后检查更新：
+
+- 有新版则自动下载。
+- renderer 通过 `update-status` 接收下载进度。
+- 下载完成后 `UpdateBanner` 提供“重启并更新”。
+- 退出时允许静默安装。
+- 开发环境（`process.defaultApp`）不自动检查。
+
+真正验证自动更新必须至少发布两个递增版本，在已安装旧版上观察检查、下载、重启安装与数据保留。当前只有一个版本，因此只能确认代码和更新元数据存在，不能宣称升级闭环已验收。
+
+## Windows 安装注意
+
+- NSIS 为 x64、当前用户安装、可选择目录、创建桌面和开始菜单快捷方式。
+- 暂无代码签名，SmartScreen 会显示未知发行者；个人试用可人工确认，公开分发应评估签名。
+- 正式 Windows 包由 `windows-latest` 构建；Linux/WSL 本地交叉打包不作为发布依据。
+
+## 发布前检查清单
+
+- [ ] `main` 已同步，工作树只包含本次发布内容。
+- [ ] 版本号、tag、文档一致。
+- [ ] `pnpm typecheck`、`pnpm test:core`、`pnpm build` 通过。
+- [ ] 扫码、RSS、文章阅读和数据升级做过最小人工验收。
+- [ ] Release notes 说明数据格式/安全/已知限制。
+- [ ] Actions 成功，Release 非 draft，安装包、blockmap、`latest.yml` 齐全。
+- [ ] 从旧版本完成一次自动更新并确认数据未丢失。

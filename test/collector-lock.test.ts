@@ -1,7 +1,7 @@
 // 验证采集全局串行锁：并发调用绝不重叠（保护账号不被并发请求打爆）。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Collector } from '../src/core/agent/collector'
+import { Collector } from '../src/core/collect/collector'
 import { AdapterRegistry } from '../src/core/ingest/adapter'
 import type { SourceAdapter, FetchOutcome } from '../src/core/ingest/adapter'
 import { registerNormalizer } from '../src/core/process/normalize'
@@ -10,6 +10,7 @@ import type { Source } from '../src/shared/contract'
 // 注册一个测试 normalizer
 registerNormalizer('test', (item, source) => ({
   id: `${source.id}-${item.externalId}`,
+  externalId: item.externalId,
   title: 't',
   body: '',
   publishedAt: 0,

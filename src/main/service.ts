@@ -6,8 +6,8 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { makePaths } from '../core/paths'
 import { Store } from '../core/store'
-import { AccountPool } from '../core/agent/account-pool'
-import { Collector } from '../core/agent/collector'
+import { AccountPool } from '../core/collect/account-pool'
+import { Collector } from '../core/collect/collector'
 import { AdapterRegistry } from '../core/ingest/adapter'
 import { WechatAdapter } from '../core/ingest/wechat-adapter'
 import { RssAdapter } from '../core/ingest/rss-adapter'
@@ -18,13 +18,14 @@ import type { Source } from '../shared/contract'
 import type { DiscoverResult } from '../core/ingest/adapter'
 import { saveAccounts, loadAccounts } from './secrets'
 import { openWechatLogin, makeAccount } from './wechat-login'
-import { installSkills } from './skills'
+import { ensureDataGuide } from './data-guide'
 
 export class Service {
   private store: Store
   private pool: AccountPool
   private collector: Collector
   private registry: AdapterRegistry
+  private stopped = false
   private paths = makePaths(join(app.getPath('userData'), 'data'))
 
   constructor() {
@@ -105,15 +106,10 @@ export class Service {
 
   start(): void {
     this.registerIpc()
-    // 安装内置 skills 到数据目录，供用户在 data/ 里跑 claude 自动发现。
-    // resources 路径：打包后在 process.resourcesPath；开发时在项目 resources/。
-    const resourcesSkills = app.isPackaged
-      ? join(process.resourcesPath, 'skills')
-      : join(app.getAppPath(), 'resources', 'skills')
     try {
-      installSkills(this.paths, resourcesSkills)
+      ensureDataGuide(this.paths)
     } catch (e) {
-      console.error('installSkills failed:', (e as Error).message)
+      console.error('ensureDataGuide failed:', (e as Error).message)
     }
     // 注意：不启动任何自动轮询定时器。采集只由用户手动触发（source:refresh）。
   }
@@ -183,6 +179,9 @@ export class Service {
   }
 
   stop(): void {
-    // 无定时器需清理；采集是手动一次性的。保留方法供 main 在退出时调用。
+    if (this.stopped) return
+    this.stopped = true
+    // 无定时器；关闭 SQLite 连接，确保文件/索引写入完成。
+    this.store.close()
   }
 }

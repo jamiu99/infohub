@@ -1,4 +1,5 @@
 // 采集编排器：面向 SourceAdapter 接口，与具体信源解耦。见 docs/ingest.md。
+// 本模块只负责任务串行化与数据管线，不包含任何模型或 AI 能力。
 // 通用流程：adapter.fetch → 去重 → normalizer 归一化 → adapter.enrichBody 补正文 → store。
 // 信源专属逻辑（wechat 账号池/限流、rss 解析）都在各自 adapter 里，这里不感知。
 import type { Source } from '../../shared/contract'
@@ -70,8 +71,7 @@ export class Collector {
         const body = await adapter.enrichBody(article.sourceUrl)
         if (body) article.body = body
       }
-      const saved = this.store.saveArticle(article)
-      this.store.markSeen(source.id, raw.externalId, saved.id)
+      this.store.saveArticle(article)
       newCount++
     }
 
