@@ -22,7 +22,9 @@ function pct(a: { requestsThisHour: number; hourLimit: number }): number {
     <div v-if="!accounts.length" class="empty">
       未登录账号<br />
       <button class="primary" @click="store.login()">扫码登录</button>
-      <div class="tip">每次登录一个号：扫码后关窗即保存。想加更多号就再点一次。</div>
+      <div class="tip">
+        仅使用手机微信扫描官方二维码，请勿在弹窗输入账号、密码或验证码。登录态只保存在本机。
+      </div>
     </div>
 
     <div v-for="a in accounts" :key="a.id" class="acc">

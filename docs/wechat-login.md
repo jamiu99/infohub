@@ -17,7 +17,9 @@
 ## 二、扫码登录方案：内嵌 BrowserWindow（不模拟登录接口）
 
 **不走**模拟登录 API（要处理账密、验证码、风控，脆弱且违规风险高）。
-**走**：Electron 开一个 `BrowserWindow` 直接加载官方登录页 `https://mp.weixin.qq.com/`，你用手机微信扫码，登录态由官方页面自己建立，App 只是"读"这个窗口的 session。
+**走**：Electron 开一个 `BrowserWindow` 直接加载官方登录页 `https://mp.weixin.qq.com/`，自动切换到传统二维码，你用手机微信扫码，登录态由官方页面自己建立，App 只读取登录后的 session。
+
+用户不应在 infohub 登录窗口输入账号、密码或验证码。微信公众平台当前会优先展示账号登录或依赖本地网络权限的“微信快捷登录”；`v0.1.2` 会通过页面自己的点击事件切到传统二维码，并拒绝设备权限、站外导航和页面弹窗。
 
 ### ⚠️ 关键认知（经用户确认，2026-07-06 定稿）
 
@@ -34,10 +36,11 @@
 
 ```
 1. 点"扫码登录" → main 生成新 id，开独立分区 session.fromPartition('persist:wx-<id>')
-2. BrowserWindow 加载 mp.weixin.qq.com，注入中文引导横幅（原生标题栏 WSLg 无中文字体，故走页面内）
-3. 用户手机扫码登录【这一个号】→ 后台跳转 URL 带 token，监听 did-navigate 记录 lastToken
-4. 用户关窗 → close 事件里 preventDefault，异步抓 cookie + 读昵称 + 用 lastToken 组装账号 → 入池
-5. persist 分区持久化，下次免扫码。想加更多号 → 再点一次登录，另开独立分区
+2. BrowserWindow 加载 mp.weixin.qq.com，拒绝设备权限并只允许站内 HTTPS 导航
+3. App 自动从账号/快捷登录切到传统二维码；失败时给出明确引导
+4. 用户手机扫码登录【这一个号】→ 后台跳转 URL 带 token，监听 did-navigate 记录 lastToken
+5. 用户关窗 → close 事件里 preventDefault，异步抓 cookie + 读昵称 + 用 lastToken 组装账号 → 入池
+6. persist 分区持久化，下次免扫码。想加更多号 → 再点一次登录，另开独立分区
 ```
 
 ### 关键点
@@ -46,6 +49,8 @@
 - **关窗时捕获**：不监听中间导航态（避免误抓登录落地页），以关窗那刻的 lastToken + cookie 为准。
 - **token 抓取**：登录成功后 URL 才带 token（`/[?&]token=(\d+)/`）。
 - **中文引导横幅**：注入登录页顶部（Chromium 渲染中文正常），规避 WSLg 原生标题栏乱码。
+- **二维码优先**：自动点击官方页面的扫码模式与传统二维码入口，不读取账号或密码输入框。
+- **窗口收口**：所有权限默认拒绝，只允许 `https://mp.weixin.qq.com` 顶层导航，页面弹窗一律阻止。
 - **fingerprint**：登录时未强制抓，缺失多数接口仍可用；如遇校验失败再从页面 JS 上下文补抓。
 
 ## 三、账号池与持久化

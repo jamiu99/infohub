@@ -4,10 +4,10 @@
 
 ## 当前发布状态
 
-2026-07-12 的发布基线：
+2026-07-13 的发布基线：
 
-- 当前源码版本为 `v0.1.1`，发布说明见 [releases/v0.1.1.md](releases/v0.1.1.md)。
-- 上个 GitHub Release `v0.1.0` 已于 2026-07-06 正式发布，产物、blockmap 与 `latest.yml` 齐全。
+- 当前源码版本为 `v0.1.2`，发布说明见 [releases/v0.1.2.md](releases/v0.1.2.md)。
+- 上个 GitHub Release `v0.1.1` 已正式发布，产物、blockmap 与 `latest.yml` 齐全。
 - Release workflow 已在 `v0.1.1` 补齐版本校验、typecheck 和核心测试。
 - 尚无 Windows 安装人工验收或跨版本自动更新验收记录，不能把“存在更新代码”表述为“升级闭环已验收”。
 
@@ -33,17 +33,17 @@ checkout
 
 ## 发布下一版本
 
-不要复用旧 tag。例如发布 `0.1.2`：
+不要复用旧 tag。例如发布 `0.1.3`：
 
 ```bash
 # 1. 更新版本、文档和 release notes
-pnpm version 0.1.2 --no-git-tag-version
+pnpm version 0.1.3 --no-git-tag-version
 ./verify.sh
 
 # 2. 确认工作树、提交和远端正确后再创建 tag
-git tag v0.1.2
+git tag v0.1.3
 git push origin main
-git push origin v0.1.2
+git push origin v0.1.3
 ```
 
 约束：`package.json.version` 必须与 tag 去掉 `v` 后完全一致；Release workflow 会自动阻断不一致发布。
@@ -60,7 +60,7 @@ Release notes 必须明确数据格式变化、迁移方式与已知限制；如
 - 退出时允许静默安装。
 - 开发环境（`process.defaultApp`）不自动检查。
 
-真正验证自动更新必须至少发布两个递增版本，在已安装旧版上观察检查、下载、重启安装与数据保留。当前只有一个版本，因此只能确认代码和更新元数据存在，不能宣称升级闭环已验收。
+真正验证自动更新必须在已安装旧版上观察检查、下载、重启安装与数据保留。仓库已有连续版本和更新元数据，但尚无真实 Windows 跨版本人工验收记录，因此不能宣称升级闭环已验收。
 
 ## Windows 安装注意
 

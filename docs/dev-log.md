@@ -30,7 +30,7 @@
 | 命令 | 结果 |
 |------|------|
 | `pnpm typecheck` | ✅ main/preload/core/shared + renderer 通过 |
-| `pnpm test:core` | ✅ 35/35，0 fail |
+| `pnpm test:core` | ✅ 37/37，0 fail |
 | `pnpm build` | ✅ main/preload/renderer 生产构建通过 |
 | `pnpm audit --prod` | ✅ 未发现已知生产依赖漏洞 |
 | Markdown 链接 / `git diff --check` | ✅ |
@@ -110,7 +110,7 @@ sudo apt-get install -y libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libgbm1 
 1. 后台采集错误和 quota waiting 缺明确前端反馈。
 2. safeStorage 不可用时静默明文，缺格式版本、告警与迁移。
 3. 普通 push/PR 与 Release 已有门禁，但 GitHub 分支保护规则尚未核验。
-4. sandbox preload、CSP 图片、扫码和系统外链未做真实桌面点击验收。
+4. sandbox preload、CSP 图片、`v0.1.2` 传统二维码和系统外链未做真实 Windows 点击验收。
 5. 两个 probe 脚本失效，尚未纳入 `verify.sh`。
 
 ## 仍需补的测试

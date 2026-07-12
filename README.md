@@ -23,7 +23,7 @@ infohub 只做四件事：
 - 外部内容 URL 白名单、DOMPurify、CSP 与 Electron renderer sandbox。
 - Windows NSIS Release 与自动更新。
 
-当前版本是 `v0.1.1`。核心数据链路、发布门禁和自动更新已就绪；桌面全流程、凭据兜底、错误反馈与探测脚本仍需稳定化，详见 [docs/overview.md](docs/overview.md)。
+当前版本是 `v0.1.2`。核心数据链路、发布门禁、自动更新和公众号传统二维码登录已就绪；桌面全流程、凭据兜底、错误反馈与探测脚本仍需稳定化，详见 [docs/overview.md](docs/overview.md)。
 
 ## 开发与验证
 

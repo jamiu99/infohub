@@ -9,6 +9,11 @@
 //   想加更多号，就再点一次登录，另开一个独立分区窗口。不做任何"内部切换账号"逻辑。
 import { BrowserWindow, session } from 'electron'
 import type { WxAccount } from '../shared/wechat'
+import {
+  buildWechatQrLoginScript,
+  isWechatLoginUrl,
+  type WechatQrPageState
+} from './wechat-login-page'
 
 const HOME = 'https://mp.weixin.qq.com/'
 const TOKEN_RE = /[?&]token=(\d+)/
@@ -39,10 +44,18 @@ async function readNickname(wc: Electron.WebContents): Promise<string | undefine
 }
 
 /** 往登录页顶部注入中文引导横幅（Chromium 渲染，避开原生标题栏 WSLg 无中文字体的乱码） */
-async function injectBanner(wc: Electron.WebContents, loggedIn: boolean): Promise<void> {
-  const tip = loggedIn
-    ? '已检测到登录。确认是要采集的号后，直接关闭本窗口即可保存该账号。'
-    : '请用手机微信扫码登录【要采集的这个公众号】。登录成功后关闭本窗口，即保存该账号。'
+async function injectBanner(
+  wc: Electron.WebContents,
+  state: 'loading' | 'ready' | 'logged-in' | WechatQrPageState
+): Promise<void> {
+  const tips: Record<typeof state, string> = {
+    loading: '正在切换到微信官方二维码。请勿输入账号、密码或验证码。',
+    ready: '请用手机微信扫描下方二维码。确认登录后关闭本窗口，即可仅在本机保存登录态。',
+    'logged-in': '已检测到登录。确认是要采集的号后，直接关闭本窗口即可保存该账号。',
+    failed: '二维码加载失败，请检查网络后重新打开；不要改用账号、密码或验证码登录。',
+    timeout: '未能自动显示二维码。请点击登录框右上角二维码图标，再选择“扫码登录”。'
+  }
+  const tip = tips[state]
   const js = `(() => {
     const ID='__infohub_banner__';
     let el=document.getElementById(ID);
@@ -60,6 +73,18 @@ async function injectBanner(wc: Electron.WebContents, loggedIn: boolean): Promis
   }
 }
 
+async function showWechatQrLogin(wc: Electron.WebContents): Promise<void> {
+  await injectBanner(wc, 'loading')
+  try {
+    const result = (await wc.executeJavaScript(buildWechatQrLoginScript())) as {
+      state: WechatQrPageState
+    }
+    await injectBanner(wc, result.state)
+  } catch {
+    await injectBanner(wc, 'timeout')
+  }
+}
+
 /**
  * 打开一个独立分区的登录窗口。用户扫码登录一个公众号后，关窗时抓取其 token+cookie。
  * @param partition 该账号独立分区 persist:wx-<id>
@@ -68,12 +93,30 @@ async function injectBanner(wc: Electron.WebContents, loggedIn: boolean): Promis
 export function openWechatLogin(partition: string): Promise<LoginResult | null> {
   return new Promise((resolve) => {
     const ses = session.fromPartition(partition)
+    // 传统二维码不需要摄像头、定位、本地网络或设备权限，默认全部拒绝。
+    ses.setPermissionCheckHandler(() => false)
+    ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))
+
     const win = new BrowserWindow({
       width: 1040,
       height: 760,
-      title: 'infohub - WeChat login',
-      webPreferences: { partition, contextIsolation: true, nodeIntegration: false }
+      title: 'infohub · 微信公众平台扫码登录',
+      backgroundColor: '#ffffff',
+      webPreferences: {
+        partition,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        webSecurity: true
+      }
     })
+    win.setMenuBarVisibility(false)
+
+    // 登录窗口只能在微信公众平台内部导航；页面弹窗一律拒绝。
+    win.webContents.on('will-navigate', (event, url) => {
+      if (!isWechatLoginUrl(url)) event.preventDefault()
+    })
+    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
 
     // 记录当前观察到的登录态（关窗时以此为准抓取）
     let lastToken: string | null = null
@@ -82,11 +125,14 @@ export function openWechatLogin(partition: string): Promise<LoginResult | null> 
       const m = url.match(TOKEN_RE)
       if (m) {
         lastToken = m[1]
-        await injectBanner(win.webContents, true)
+        await injectBanner(win.webContents, 'logged-in')
       }
     }
 
-    win.webContents.on('did-finish-load', () => void injectBanner(win.webContents, !!lastToken))
+    win.webContents.on('did-finish-load', () => {
+      if (lastToken) void injectBanner(win.webContents, 'logged-in')
+      else void showWechatQrLogin(win.webContents)
+    })
     win.webContents.on('did-navigate', (_e, url) => void onNavigate(url))
     win.webContents.on('did-navigate-in-page', (_e, url) => void onNavigate(url))
 
