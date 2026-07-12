@@ -21,7 +21,7 @@
 | preload | `src/preload/index.ts` |
 | Vue 看板 | `src/renderer/src/stores/app.ts`、`components/*.vue`、`styles/main.css` |
 | 内容安全 | `src/renderer/src/markdown.ts`、`src/renderer/index.html` |
-| 更新/发布 | `src/main/updater.ts`、`electron-builder.yml`、`.github/workflows/release.yml` |
+| 更新/发布 | `src/main/update-controller.ts`、`src/main/updater.ts`、`electron-builder.yml`、`.github/workflows/release.yml` |
 
 仓库已没有 AI CLI、Skill 安装器或 `core/agent` 目录。
 
@@ -30,7 +30,7 @@
 | 命令 | 结果 |
 |------|------|
 | `pnpm typecheck` | ✅ main/preload/core/shared + renderer 通过 |
-| `pnpm test:core` | ✅ 37/37，0 fail |
+| `pnpm test:core` | ✅ 42/42，0 fail |
 | `pnpm build` | ✅ main/preload/renderer 生产构建通过 |
 | `pnpm verify:bundle` | ✅ sandbox preload 为单文件 CJS，主窗口路径一致 |
 | `pnpm smoke:desktop` | ✅ 真实 Electron 中 `window.api.account.list()` 调用通过 |
@@ -39,7 +39,7 @@
 | GitHub Release workflow | ✅，Windows 打包前校验版本并重跑完整门禁 |
 | `./verify.sh` | ✅，本地与 `main`/PR CI 共用 |
 
-37 项测试分布：
+42 项测试分布：
 
 - 账号池与配额：8。
 - Collector 串行锁与未知 adapter：2。
@@ -49,6 +49,7 @@
 - Store 往返、状态、重建、外部文件同步、迁移和路径：7。
 - 运行时数据目录说明：1。
 - 微信登录 URL 白名单与传统二维码切换：2。
+- 用户确认式更新状态机：5。
 
 ## 产品边界清理（2026-07-11）
 
@@ -113,7 +114,7 @@ sudo apt-get install -y libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libgbm1 
 1. 后台采集错误和 quota waiting 缺明确前端反馈。
 2. safeStorage 不可用时静默明文，缺格式版本、告警与迁移。
 3. 普通 push/PR 与 Release 已有门禁，但 GitHub 分支保护规则尚未核验。
-4. sandbox preload 已做 Linux Electron smoke test；CSP 图片、`v0.1.3` 传统二维码和系统外链仍未做真实 Windows 点击验收。
+4. sandbox preload 已做 Linux Electron smoke test；CSP 图片、`v0.1.4` 二维码、原生更新对话框和系统外链仍需真实 Windows 点击验收。
 5. 两个 probe 脚本失效，尚未纳入 `verify.sh`。
 
 ## 仍需补的测试

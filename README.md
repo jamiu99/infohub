@@ -21,9 +21,9 @@ infohub 只做四件事：
 - Article Markdown、Raw JSON、`sources.json` 与 Node 内置 `node:sqlite` 索引。
 - schema v2 旧数据迁移、文件/索引同步、去重表完整重建。
 - 外部内容 URL 白名单、DOMPurify、CSP 与 Electron renderer sandbox。
-- Windows NSIS Release 与自动更新。
+- Windows NSIS Release 与用户确认式自动更新。
 
-当前版本是 `v0.1.3`。桌面 preload/IPC 桥、核心数据链路、自动更新和公众号传统二维码登录已就绪；桌面全流程、凭据兜底、错误反馈与探测脚本仍需稳定化，详见 [docs/overview.md](docs/overview.md)。
+当前版本是 `v0.1.4`。桌面 preload/IPC 桥、核心数据链路、传统“检查—确认—下载—重启”更新流程和公众号二维码登录已就绪；桌面全流程、凭据兜底、错误反馈与探测脚本仍需稳定化，详见 [docs/overview.md](docs/overview.md)。
 
 ## 开发与验证
 

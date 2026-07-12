@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 自动更新提示条：有新版下载好后提示重启安装。见 docs/release.md。
+// 更新提示条：用户确认下载后显示进度，下载好后可重启安装。见 docs/release.md。
 import { computed } from 'vue'
 import { store } from '../stores/app'
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, Menu, session } from 'electron'
+import { app, BrowserWindow, dialog, shell, Menu, session, type MenuItemConstructorOptions } from 'electron'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { rmSync } from 'node:fs'
@@ -14,6 +14,32 @@ if (smokeDataPath) app.setPath('userData', smokeDataPath)
 
 // 去掉 Electron 默认的 File/Edit/View/Window 原生菜单栏（这不是浏览器，用不上）
 Menu.setApplicationMenu(null)
+
+function installApplicationMenu(checkForUpdates: () => void): void {
+  const template: MenuItemConstructorOptions[] = [
+    {
+      label: '帮助',
+      submenu: [
+        { id: 'check-for-updates', label: '检查更新…', click: checkForUpdates },
+        { type: 'separator' },
+        {
+          label: '关于 infohub',
+          click: () => {
+            void dialog.showMessageBox({
+              type: 'info',
+              title: '关于 infohub',
+              message: `infohub ${app.getVersion()}`,
+              detail: '本地信息采集、文件归档、SQLite 索引与快速看板',
+              buttons: ['确定'],
+              noLink: true
+            })
+          }
+        }
+      ]
+    }
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
 
 // 公众号图片防盗链：给 mmbiz 图片请求伪造 mp 的 Referer，窗口里即可直接显示原图。
 // 这是桌面客户端相比网页的能力——网页 JS 改不了 Referer，主进程可以。
@@ -82,7 +108,9 @@ function createWindow(): void {
         })()`)
         .then((ok) => {
           clearTimeout(timer)
-          finish(ok === true, ok === true ? 'preload + IPC' : 'bridge missing')
+          const menuReady = Boolean(Menu.getApplicationMenu()?.getMenuItemById('check-for-updates'))
+          const passed = ok === true && menuReady
+          finish(passed, passed ? 'preload + IPC + update menu' : 'bridge or update menu missing')
         })
         .catch((error: Error) => {
           clearTimeout(timer)
@@ -97,7 +125,8 @@ app.whenReady().then(() => {
   service = new Service()
   service.start()
   createWindow()
-  initUpdater()
+  const updater = initUpdater()
+  installApplicationMenu(() => void updater.check(true))
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

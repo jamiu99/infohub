@@ -6,8 +6,8 @@
 
 2026-07-13 的发布基线：
 
-- 当前源码版本为 `v0.1.3`，发布说明见 [releases/v0.1.3.md](releases/v0.1.3.md)。
-- 上个正式 GitHub Release 是 `v0.1.1`；`v0.1.2` 因 preload 回归已取消并转为 draft，不会被自动更新发现。
+- 当前源码版本为 `v0.1.4`，发布说明见 [releases/v0.1.4.md](releases/v0.1.4.md)。
+- 上个正式 GitHub Release 是 `v0.1.3`；`v0.1.2` 因 preload 回归已取消并转为 draft。
 - Release workflow 已在 `v0.1.1` 补齐版本校验、typecheck 和核心测试。
 - 尚无 Windows 安装人工验收或跨版本自动更新验收记录，不能把“存在更新代码”表述为“升级闭环已验收”。
 
@@ -34,17 +34,17 @@ checkout
 
 ## 发布下一版本
 
-不要复用旧 tag。例如发布 `0.1.4`：
+不要复用旧 tag。例如发布 `0.1.5`：
 
 ```bash
 # 1. 更新版本、文档和 release notes
-pnpm version 0.1.4 --no-git-tag-version
+pnpm version 0.1.5 --no-git-tag-version
 ./verify.sh
 
 # 2. 确认工作树、提交和远端正确后再创建 tag
-git tag v0.1.4
+git tag v0.1.5
 git push origin main
-git push origin v0.1.4
+git push origin v0.1.5
 ```
 
 约束：`package.json.version` 必须与 tag 去掉 `v` 后完全一致；Release workflow 会自动阻断不一致发布。
@@ -53,12 +53,13 @@ Release notes 必须明确数据格式变化、迁移方式与已知限制；如
 
 ## App 内自动更新
 
-`src/main/updater.ts` 在打包环境启动 5 秒后检查更新：
+`src/main/updater.ts` 在打包环境启动 5 秒后检查更新，也可从“帮助 → 检查更新”或左栏按钮手动触发：
 
-- 有新版则自动下载。
-- renderer 通过 `update-status` 接收下载进度。
-- 下载完成后 `UpdateBanner` 提供“重启并更新”。
-- 退出时允许静默安装。
+- 有新版时先用 main 原生对话框询问是否下载，不未经确认消耗流量。
+- 确认后下载；renderer 提示条和 Windows 任务栏显示进度。
+- 下载完成后询问“立即重启更新 / 稍后”；稍后退出时安装。
+- 手动检查无新版、检查失败或下载失败都有明确原生反馈。
+- 原生对话框和菜单不依赖 renderer/preload，可在前端桥接故障时保留恢复入口。
 - 开发环境（`process.defaultApp`）不自动检查。
 
 真正验证自动更新必须在已安装旧版上观察检查、下载、重启安装与数据保留。仓库已有连续版本和更新元数据，但尚无真实 Windows 跨版本人工验收记录，因此不能宣称升级闭环已验收。

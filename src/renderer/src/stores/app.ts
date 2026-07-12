@@ -45,6 +45,10 @@ export const store = {
     void api.update.install()
   },
 
+  checkUpdate(): void {
+    void api.update.check()
+  },
+
   async loadSources(): Promise<void> {
     state.sources = await api.source.list()
     state.unread = await api.article.unreadCounts()

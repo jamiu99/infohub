@@ -1,30 +1,110 @@
-// 自动更新：electron-updater 从 GitHub Release 检查更新。见 docs/release.md。
-// 用户下载一次后，之后启动自动检查、后台下载、退出时安装。
+// 用户确认式更新：检查 → 询问下载 → 下载进度 → 询问重启安装。
+// 原生对话框运行在 main，不依赖 renderer/preload，可作为桌面恢复通道。
+import { app, BrowserWindow, dialog, ipcMain, type MessageBoxOptions } from 'electron'
 import { autoUpdater } from 'electron-updater'
-import { BrowserWindow, ipcMain } from 'electron'
 import type { UpdateStatus } from '../shared/ipc'
+import { UpdateController, type UpdateUi } from './update-controller'
 
-export function initUpdater(): void {
-  autoUpdater.autoDownload = true // 有更新自动后台下载
-  autoUpdater.autoInstallOnAppQuit = true // 退出时静默安装
+function send(value: UpdateStatus): void {
+  for (const window of BrowserWindow.getAllWindows()) window.webContents.send('update-status', value)
+}
 
-  const send = (s: UpdateStatus): void => {
-    for (const w of BrowserWindow.getAllWindows()) w.webContents.send('update-status', s)
+function showMessage(options: MessageBoxOptions): ReturnType<typeof dialog.showMessageBox> {
+  const owner = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+  return owner ? dialog.showMessageBox(owner, options) : dialog.showMessageBox(options)
+}
+
+function createNativeUi(): UpdateUi {
+  return {
+    status: send,
+    progress: (value) => {
+      for (const window of BrowserWindow.getAllWindows()) window.setProgressBar(value ?? -1)
+    },
+    confirmDownload: async (version, currentVersion) => {
+      const result = await showMessage({
+        type: 'info',
+        title: 'infohub 更新',
+        message: `发现新版本 ${version}`,
+        detail: `当前版本为 ${currentVersion}。是否现在下载更新？`,
+        buttons: ['下载更新', '稍后'],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true
+      })
+      return result.response === 0
+    },
+    confirmInstall: async (version) => {
+      const result = await showMessage({
+        type: 'info',
+        title: 'infohub 更新',
+        message: `版本 ${version} 已下载完成`,
+        detail: '立即重启 infohub 完成安装，或稍后在退出时安装。',
+        buttons: ['立即重启更新', '稍后'],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true
+      })
+      return result.response === 0
+    },
+    showUpToDate: async (currentVersion) => {
+      await showMessage({
+        type: 'info',
+        title: '检查更新',
+        message: '当前已经是最新版本',
+        detail: `infohub ${currentVersion}`,
+        buttons: ['确定'],
+        noLink: true
+      })
+    },
+    showBusy: async (phase) => {
+      await showMessage({
+        type: 'info',
+        title: 'infohub 更新',
+        message: phase === 'downloading' ? '更新正在下载中' : '正在检查更新',
+        buttons: ['确定'],
+        noLink: true
+      })
+    },
+    showError: async (message) => {
+      await showMessage({
+        type: 'error',
+        title: '更新失败',
+        message: '无法完成更新',
+        detail: message,
+        buttons: ['确定'],
+        noLink: true
+      })
+    }
   }
+}
 
-  autoUpdater.on('checking-for-update', () => send({ state: 'checking' }))
-  autoUpdater.on('update-available', (i) => send({ state: 'available', version: i.version }))
-  autoUpdater.on('update-not-available', () => send({ state: 'none' }))
-  autoUpdater.on('download-progress', (p) => send({ state: 'downloading', percent: Math.round(p.percent) }))
-  autoUpdater.on('update-downloaded', (i) => send({ state: 'ready', version: i.version }))
-  autoUpdater.on('error', (e) => send({ state: 'error', message: e.message }))
+export function initUpdater(): UpdateController {
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = true
 
-  // 渲染进程可主动触发"检查更新"和"立即重启安装"
-  ipcMain.handle('update:check', () => autoUpdater.checkForUpdates().catch(() => null))
-  ipcMain.handle('update:install', () => autoUpdater.quitAndInstall())
+  const controller = new UpdateController(
+    {
+      check: async () => {
+        await autoUpdater.checkForUpdates()
+      },
+      download: async () => {
+        await autoUpdater.downloadUpdate()
+      },
+      install: () => autoUpdater.quitAndInstall(false, true)
+    },
+    createNativeUi(),
+    app.getVersion()
+  )
 
-  // 启动后延迟检查（避开启动高峰）。dev 环境跳过。
-  if (!process.defaultApp) {
-    setTimeout(() => void autoUpdater.checkForUpdates().catch(() => null), 5000)
-  }
+  autoUpdater.on('update-available', (info) => void controller.available(info.version))
+  autoUpdater.on('update-not-available', () => void controller.none())
+  autoUpdater.on('download-progress', (progress) => controller.progress(progress.percent))
+  autoUpdater.on('update-downloaded', (info) => void controller.downloaded(info.version))
+  autoUpdater.on('error', (error) => void controller.failed(error))
+
+  ipcMain.handle('update:check', () => controller.check(true))
+  ipcMain.handle('update:install', () => controller.installNow())
+
+  if (!process.defaultApp) setTimeout(() => void controller.check(false), 5000)
+  return controller
 }

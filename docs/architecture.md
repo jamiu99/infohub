@@ -63,7 +63,8 @@ src/
 │   ├── data-guide.ts        # 生成 INFOHUB_DATA.md
 │   ├── wechat-login.ts      # 扫码 BrowserWindow
 │   ├── secrets.ts           # safeStorage 凭据持久化
-│   └── updater.ts           # electron-updater
+│   ├── update-controller.ts # 可测试的更新状态机
+│   └── updater.ts           # electron-updater + 原生对话框
 ├── preload/index.ts         # contextBridge 实现
 ├── renderer/                # Vue 3 看板
 ├── shared/

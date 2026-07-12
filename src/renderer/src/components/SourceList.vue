@@ -45,6 +45,7 @@ function dot(sourceId: string): string {
 
     <div class="spacer"></div>
     <QuotaPanel />
+    <button class="check-update" @click="store.checkUpdate()">检查更新</button>
 
     <AddSourceDialog v-if="showAdd" @close="showAdd = false" />
   </div>
@@ -165,5 +166,16 @@ function dot(sourceId: string): string {
 }
 .spacer {
   flex: 1;
+}
+.check-update {
+  margin: 0 12px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.check-update:hover {
+  color: var(--text-secondary);
+  background: var(--bg-hover);
 }
 </style>
