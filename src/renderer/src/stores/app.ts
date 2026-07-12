@@ -2,7 +2,10 @@
 import { reactive, readonly } from 'vue'
 import type { Source, Article, DiscoverResult } from '../../../shared/contract'
 import type { WechatCollectionSettings, WxAccountView } from '../../../shared/wechat'
-import type { IngestProgress, UpdateStatus } from '../../../shared/ipc'
+import type { InfohubApi, IngestProgress, UpdateStatus } from '../../../shared/ipc'
+
+type TeamStatus = Awaited<ReturnType<InfohubApi['team']['status']>>
+type TeamJoinInput = Parameters<InfohubApi['team']['join']>[0]
 
 interface State {
   sources: Source[]
@@ -10,9 +13,15 @@ interface State {
   accounts: WxAccountView[]
   wechatSettings: WechatCollectionSettings | null
   articles: Article[]
+  articlesLoading: boolean
+  articlesError: string
   selectedSourceId: string | null // null = 全部
   selectedArticle: Article | null
   filter: 'unread' | 'all' | 'archived'
+  articleScope: 'mine' | 'team'
+  team: TeamStatus | null
+  teamLoading: boolean
+  teamError: string
   progress: IngestProgress
   update: UpdateStatus | null
 }
@@ -23,14 +32,21 @@ const state = reactive<State>({
   accounts: [],
   wechatSettings: null,
   articles: [],
+  articlesLoading: true,
+  articlesError: '',
   selectedSourceId: null,
   selectedArticle: null,
   filter: 'all',
+  articleScope: 'mine',
+  team: null,
+  teamLoading: true,
+  teamError: '',
   progress: { phase: 'idle', queued: 0 },
   update: null
 })
 
 const api = window.api
+let articleRequestId = 0
 
 export const store = {
   state: readonly(state) as unknown as State,
@@ -40,10 +56,21 @@ export const store = {
       this.loadSources(),
       this.loadAccounts(),
       this.loadWechatSettings(),
+      this.loadTeamStatus(),
       this.loadArticles()
     ])
     api.on('accounts-changed', () => void this.loadAccounts())
     api.on('articles-changed', () => void this.refreshAll())
+    api.on('team-status', (status) => {
+      state.team = status
+      state.teamLoading = false
+      state.teamError = status.error ?? ''
+      if (!status.device && state.articleScope === 'team') {
+        state.articleScope = 'mine'
+        state.selectedArticle = null
+        void this.loadArticles()
+      }
+    })
     api.on('ingest-progress', (p) => (state.progress = p))
     api.on('update-status', (s) => (state.update = s))
   },
@@ -70,10 +97,37 @@ export const store = {
   },
 
   async loadArticles(): Promise<void> {
-    state.articles = await api.article.list({
-      sourceId: state.selectedSourceId ?? undefined,
-      filter: state.filter
-    })
+    const requestId = ++articleRequestId
+    state.articlesLoading = true
+    state.articlesError = ''
+    try {
+      const articles = await api.article.list({
+        sourceId: state.selectedSourceId ?? undefined,
+        filter: state.filter,
+        scope: state.articleScope
+      })
+      if (requestId === articleRequestId) state.articles = articles
+    } catch (error) {
+      if (requestId === articleRequestId) {
+        state.articles = []
+        state.articlesError = error instanceof Error ? error.message : '文章加载失败'
+      }
+    } finally {
+      if (requestId === articleRequestId) state.articlesLoading = false
+    }
+  },
+
+  async loadTeamStatus(): Promise<void> {
+    state.teamLoading = true
+    state.teamError = ''
+    try {
+      state.team = await api.team.status()
+      state.teamError = state.team.error ?? ''
+    } catch (error) {
+      state.teamError = error instanceof Error ? error.message : '无法读取团队状态'
+    } finally {
+      state.teamLoading = false
+    }
   },
 
   async refreshAll(): Promise<void> {
@@ -88,6 +142,13 @@ export const store = {
 
   async setFilter(f: State['filter']): Promise<void> {
     state.filter = f
+    await this.loadArticles()
+  },
+
+  async setArticleScope(scope: State['articleScope']): Promise<void> {
+    if (scope === 'team' && !state.team?.device) return
+    state.articleScope = scope
+    state.selectedArticle = null
     await this.loadArticles()
   },
 
@@ -114,6 +175,55 @@ export const store = {
   async setHourlyRequestLimit(value: number): Promise<void> {
     state.wechatSettings = await api.account.setHourlyRequestLimit(value)
     await this.loadAccounts()
+  },
+
+  // —— 团队同步 ——
+  async joinTeam(input: TeamJoinInput): Promise<void> {
+    state.teamLoading = true
+    state.teamError = ''
+    try {
+      state.team = await api.team.join(input)
+      state.teamError = state.team.error ?? ''
+      if (!state.team.device) throw new Error(state.teamError || '加入团队失败')
+      await this.refreshAll()
+    } catch (error) {
+      state.teamError = error instanceof Error ? error.message : '加入团队失败'
+      throw error
+    } finally {
+      state.teamLoading = false
+    }
+  },
+
+  async syncTeam(): Promise<void> {
+    state.teamLoading = true
+    state.teamError = ''
+    try {
+      state.team = await api.team.syncNow()
+      state.teamError = state.team.error ?? ''
+      if (state.team.state === 'error') throw new Error(state.teamError || '同步失败')
+      await this.refreshAll()
+    } catch (error) {
+      state.teamError = error instanceof Error ? error.message : '同步失败'
+      throw error
+    } finally {
+      state.teamLoading = false
+    }
+  },
+
+  async leaveTeam(): Promise<void> {
+    state.teamLoading = true
+    state.teamError = ''
+    try {
+      state.team = await api.team.leave()
+      state.articleScope = 'mine'
+      state.selectedArticle = null
+      await this.refreshAll()
+    } catch (error) {
+      state.teamError = error instanceof Error ? error.message : '退出团队失败'
+      throw error
+    } finally {
+      state.teamLoading = false
+    }
   },
 
   // —— 信源 ——

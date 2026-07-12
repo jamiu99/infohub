@@ -72,6 +72,20 @@ interface Article {
   // —— 可拓展字段：不同信源的特色元数据有处安放 ——
   ext: Record<string, unknown>;  // wechat: {fakeid, cover, author_name}; rss: {guid, summary}
 
+  // —— 可选团队来源；旧文件无此字段时视为本机历史贡献 ——
+  team?: {
+    remoteId?: string;
+    contributedByMe: boolean;
+    contributors?: Array<{
+      deviceId: string;
+      memberName: string;
+      deviceName: string;
+      collectedAt: number;
+    }>;
+    sourceConfig?: Record<string, unknown>;
+    detachedFromLocalSource?: boolean; // 已取消本地订阅，pull 不恢复为“我的”
+  };
+
   // —— 存储/状态元信息 ——
   filePath?: string;       // 落地文件相对路径（store 填充）
   read?: boolean;          // 阅读状态
@@ -88,6 +102,17 @@ interface Article {
 3. **`sourceUrl` + `provenance` 支撑溯源**：处理层可标记"这条溯源有问题"。
 4. **兼容注释不是核心契约**：旧 `summary/score/tags/staleness/provenance` 会保留，但 infohub 不生成、不展示，也不要求消费者依赖。
 5. **`externalId` 必须持久化**：否则删掉 SQLite 后无法重建去重表。v0.1.0 旧文件的推导与状态迁移见 [storage.md](storage.md#schema-v2-一致性与迁移)。
+6. **团队字段也是文件数据**：`team.contributedByMe` 用于重建“我的”索引，`contributors` 仅是服务端公开贡献信息；这里不允许出现 Cookie、token、fingerprint 或浏览器 session。
+
+## 团队传输 DTO
+
+团队上传不是对 `Source` / `Article` 做任意 JSON 序列化，而是使用 [team-sharing.md](team-sharing.md) 中的显式 allowlist：
+
+- Source 只传 `type/name`，微信公众号配置只传 `fakeid`，RSS 只传 `feedUrl`。
+- Article 只传 `externalId/title/body/publishedAt/sourceUrl/createdAt/updatedAt` 和按信源筛选后的 `ext`。
+- `read/archived/filePath/team`、Raw 原始载荷和所有登录凭据不上传。
+
+RSS `feedUrl` 额外拒绝 URL userinfo 和疑似凭据查询参数。它仍可保留普通查询参数，因为部分公开 Feed 依赖查询来选择格式或栏目。
 
 ## 新增信源
 

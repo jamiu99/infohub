@@ -20,7 +20,8 @@ export class Collector {
 
   constructor(
     private registry: AdapterRegistry,
-    private store: Store
+    private store: Store,
+    private onLocalArticle?: (source: Source, article: ReturnType<Store['saveArticle']>) => void
   ) {}
 
   /** 把任务排到串行链尾，保证全局互斥执行 */
@@ -63,7 +64,25 @@ export class Collector {
     // 2. 去重 + 归一化 + 补正文 + 入库
     let newCount = 0
     for (const raw of outcome.items) {
-      if (!raw.externalId || this.store.isSeen(source.id, raw.externalId)) continue
+      if (!raw.externalId) continue
+      if (this.store.isSeen(source.id, raw.externalId)) {
+        // 文章可能先从团队同步到本地；本机随后真实采到时必须补记本机贡献并上传。
+        const existing = this.store.findArticleByExternalId(source.id, raw.externalId)
+        if (existing?.team?.contributedByMe === false) {
+          const saved = this.store.saveArticle({
+            ...existing,
+            team: {
+              ...existing.team,
+              contributedByMe: true,
+              detachedFromLocalSource: false
+            },
+            updatedAt: Date.now()
+          })
+          this.notifyLocalArticle(source, saved)
+          newCount++
+        }
+        continue
+      }
       this.store.saveRaw(raw)
       const article = normalize(raw, source)
       // 正文补全（adapter 可选实现；wechat 抓原文页，rss 通常 entry 自带无需抓）
@@ -71,10 +90,20 @@ export class Collector {
         const body = await adapter.enrichBody(article.sourceUrl)
         if (body) article.body = body
       }
-      this.store.saveArticle(article)
+      const saved = this.store.saveArticle(article)
+      this.notifyLocalArticle(source, saved)
       newCount++
     }
 
     return { sourceId: source.id, newArticles: newCount, status: outcome.status, message: outcome.message }
+  }
+
+  private notifyLocalArticle(source: Source, article: ReturnType<Store['saveArticle']>): void {
+    try {
+      this.onLocalArticle?.(source, article)
+    } catch (error) {
+      // outbox 写入失败不能回滚已完成的本地采集；保留文章并记录错误供排查。
+      console.error('团队同步队列写入失败:', error)
+    }
   }
 }

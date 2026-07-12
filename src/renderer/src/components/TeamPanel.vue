@@ -1,0 +1,370 @@
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import { store } from '../stores/app'
+import { dateTime } from '../util'
+import { DEFAULT_TEAM_SERVER_URL } from '../../../shared/team'
+
+const showJoin = ref(false)
+const serverUrl = ref(DEFAULT_TEAM_SERVER_URL)
+const memberName = ref('')
+const deviceName = ref('')
+const teamToken = ref('')
+const actionError = ref('')
+const actionMessage = ref('')
+
+const status = computed(() => store.state.team)
+const joined = computed(() => Boolean(status.value?.device))
+const busy = computed(
+  () => store.state.teamLoading || status.value?.state === 'syncing'
+)
+
+watch(
+  () => status.value?.serverUrl,
+  (value) => {
+    if (value && !joined.value) serverUrl.value = value
+  },
+  { immediate: true }
+)
+
+function textField(value: unknown, keys: string[]): string {
+  if (typeof value === 'string') return value
+  if (!value || typeof value !== 'object') return ''
+  const fields = value as Record<string, unknown>
+  for (const key of keys) {
+    if (typeof fields[key] === 'string' && fields[key]) return fields[key] as string
+  }
+  return ''
+}
+
+const deviceLabel = computed(() =>
+  textField(status.value?.device, ['name', 'deviceName', 'id']) || '当前设备'
+)
+const memberLabel = computed(() =>
+  textField(status.value?.device, ['memberName', 'member'])
+)
+
+function resetFeedback(): void {
+  actionError.value = ''
+  actionMessage.value = ''
+}
+
+function openJoin(): void {
+  resetFeedback()
+  serverUrl.value = status.value?.serverUrl || DEFAULT_TEAM_SERVER_URL
+  showJoin.value = true
+}
+
+function closeJoin(): void {
+  if (store.state.teamLoading) return
+  teamToken.value = ''
+  showJoin.value = false
+}
+
+function validateJoin(): string {
+  if (!memberName.value.trim()) return '请填写成员名'
+  if (!deviceName.value.trim()) return '请填写设备名'
+  if (!teamToken.value) return '请填写服务器 TEAM_TOKEN'
+  try {
+    const url = new URL(serverUrl.value.trim())
+    if (url.protocol !== 'https:') return '服务器地址必须使用 HTTPS'
+  } catch {
+    return '请输入有效的服务器地址'
+  }
+  return ''
+}
+
+async function join(): Promise<void> {
+  resetFeedback()
+  const invalid = validateJoin()
+  if (invalid) {
+    actionError.value = invalid
+    return
+  }
+
+  try {
+    await store.joinTeam({
+      serverUrl: serverUrl.value.trim().replace(/\/$/, ''),
+      teamToken: teamToken.value,
+      memberName: memberName.value.trim(),
+      deviceName: deviceName.value.trim()
+    })
+    teamToken.value = ''
+    showJoin.value = false
+    actionMessage.value = '已加入团队'
+  } catch (error) {
+    actionError.value = error instanceof Error ? error.message : '加入团队失败'
+  } finally {
+    // TEAM_TOKEN 只用于本次入组请求，不在 renderer 状态中继续保留。
+    teamToken.value = ''
+  }
+}
+
+async function syncNow(): Promise<void> {
+  resetFeedback()
+  try {
+    await store.syncTeam()
+    actionMessage.value = '同步完成'
+  } catch (error) {
+    actionError.value = error instanceof Error ? error.message : '同步失败'
+  }
+}
+
+async function leave(): Promise<void> {
+  resetFeedback()
+  const confirmed = window.confirm(
+    '退出团队后会停止上传和接收团队数据，本机已有文章不会删除。确定退出吗？'
+  )
+  if (!confirmed) return
+  try {
+    await store.leaveTeam()
+    actionMessage.value = '已退出团队'
+  } catch (error) {
+    actionError.value = error instanceof Error ? error.message : '退出团队失败'
+  }
+}
+</script>
+
+<template>
+  <section class="team-panel">
+    <div class="heading">
+      <span>团队</span>
+      <span v-if="joined" class="state" :class="status?.state">
+        <template v-if="status?.state === 'syncing'">同步中</template>
+        <template v-else-if="status?.state === 'error'">异常</template>
+        <template v-else>已连接</template>
+      </span>
+    </div>
+
+    <div v-if="store.state.teamLoading && !status" class="placeholder">正在读取团队状态…</div>
+
+    <template v-else-if="joined && status">
+      <div class="identity">
+        <strong>{{ status.teamName || '当前团队' }}</strong>
+        <span>{{ memberLabel ? `${memberLabel} · ` : '' }}{{ deviceLabel }}</span>
+      </div>
+      <div class="server" :title="status.serverUrl">{{ status.serverUrl }}</div>
+      <div class="metrics">
+        <span>待上传 {{ status.pendingUploads }}</span>
+        <span v-if="status.quarantinedUploads">已隔离 {{ status.quarantinedUploads }}</span>
+        <span v-if="status.lastSyncAt">上次 {{ dateTime(status.lastSyncAt) }}</span>
+        <span v-else>尚未同步</span>
+      </div>
+      <div v-if="status.error || store.state.teamError" class="error">
+        {{ status.error || store.state.teamError }}
+      </div>
+      <div class="actions">
+        <button class="primary" :disabled="busy" @click="syncNow">
+          {{ busy ? '同步中…' : '立即同步' }}
+        </button>
+        <button class="leave" :disabled="busy" @click="leave">退出</button>
+      </div>
+    </template>
+
+    <template v-else>
+      <p class="intro">共享采集结果，团队成员可以分开订阅、共同查看。</p>
+      <button class="join-button" :disabled="store.state.teamLoading" @click="openJoin">
+        加入团队
+      </button>
+      <div v-if="store.state.teamError" class="error">{{ store.state.teamError }}</div>
+    </template>
+
+    <div v-if="actionMessage" class="message">{{ actionMessage }}</div>
+    <div v-if="actionError" class="error">{{ actionError }}</div>
+
+    <div v-if="showJoin" class="mask" @click.self="closeJoin">
+      <form class="dialog" @submit.prevent="join">
+        <h3>加入团队</h3>
+        <p class="dialog-intro">一个服务器就是一个团队。连接后，本机已有及新采集的结果默认上传团队。</p>
+
+        <label for="team-server">服务器地址</label>
+        <input
+          id="team-server"
+          v-model="serverUrl"
+          type="url"
+          inputmode="url"
+          required
+          placeholder="https://home.agent-wiki.cn:18038"
+        />
+
+        <div class="name-fields">
+          <div>
+            <label for="team-member">成员名</label>
+            <input id="team-member" v-model="memberName" required placeholder="例如：小王" />
+          </div>
+          <div>
+            <label for="team-device">设备名</label>
+            <input id="team-device" v-model="deviceName" required placeholder="例如：办公室电脑" />
+          </div>
+        </div>
+
+        <label for="team-token">服务器 TEAM_TOKEN</label>
+        <input
+          id="team-token"
+          v-model="teamToken"
+          type="password"
+          autocomplete="new-password"
+          required
+          placeholder="仅用于本次加入"
+        />
+
+        <div class="privacy">
+          TEAM_TOKEN 只用于本次入组，不会保存；微信 Cookie、Token、浏览器登录态不会上传。
+        </div>
+        <div v-if="actionError" class="error dialog-error">{{ actionError }}</div>
+
+        <div class="dialog-actions">
+          <button type="button" :disabled="store.state.teamLoading" @click="closeJoin">取消</button>
+          <button class="primary" type="submit" :disabled="store.state.teamLoading">
+            {{ store.state.teamLoading ? '连接中…' : '加入并开始同步' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
+</template>
+
+<style scoped>
+.team-panel {
+  border-top: 1px solid var(--border);
+  padding: 10px 12px;
+  font-size: 12px;
+}
+.heading,
+.metrics,
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.heading {
+  margin-bottom: 7px;
+  color: var(--text-dim);
+}
+.state {
+  color: var(--ok);
+}
+.state.syncing {
+  color: var(--accent);
+}
+.state.error,
+.error {
+  color: var(--warn);
+}
+.placeholder,
+.intro,
+.server,
+.metrics {
+  color: var(--text-dim);
+}
+.placeholder,
+.intro {
+  margin: 4px 0 8px;
+  line-height: 1.5;
+}
+.identity {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+.identity strong {
+  color: var(--text);
+  font-weight: 550;
+}
+.identity span {
+  min-width: 0;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.server {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.metrics {
+  margin-top: 5px;
+  font-size: 11px;
+}
+.actions {
+  margin-top: 8px;
+}
+.actions .primary {
+  flex: 1;
+}
+.leave {
+  color: var(--text-dim);
+  border-color: transparent;
+  background: transparent;
+}
+.join-button {
+  width: 100%;
+}
+.message,
+.error {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.message {
+  color: var(--ok);
+}
+.mask {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.42);
+}
+.dialog {
+  width: 460px;
+  max-width: 100%;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+}
+.dialog h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+.dialog-intro {
+  margin: 0 0 16px;
+  color: var(--text-secondary);
+}
+.dialog label {
+  display: block;
+  margin: 10px 0 5px;
+  color: var(--text-secondary);
+}
+.name-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.privacy {
+  margin-top: 12px;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.dialog-error {
+  margin-top: 10px;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+</style>

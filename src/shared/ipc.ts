@@ -3,6 +3,7 @@
 
 import type { Source, Article, DiscoverResult } from './contract'
 import type { WechatCollectionSettings, WxAccountView } from './wechat'
+import type { TeamJoinInput, TeamStatus } from './team'
 
 /** 轮询/采集进度事件（main → renderer 推送） */
 export interface IngestProgress {
@@ -40,11 +41,22 @@ export interface InfohubApi {
   }
   // —— 文章 ——
   article: {
-    list(opts?: { sourceId?: string; filter?: 'unread' | 'all' | 'archived' }): Promise<Article[]>
+    list(opts?: {
+      sourceId?: string
+      filter?: 'unread' | 'all' | 'archived'
+      scope?: 'mine' | 'team'
+    }): Promise<Article[]>
     get(id: string): Promise<Article | null>
     markRead(id: string, read: boolean): Promise<void>
     archive(id: string): Promise<void>
     unreadCounts(): Promise<Record<string, number>> // sourceId → 未读数
+  }
+  // —— 团队同步 ——
+  team: {
+    status(): Promise<TeamStatus>
+    join(input: TeamJoinInput): Promise<TeamStatus>
+    leave(): Promise<TeamStatus>
+    syncNow(): Promise<TeamStatus>
   }
   // —— 自动更新 ——
   update: {
@@ -55,6 +67,7 @@ export interface InfohubApi {
   on(channel: 'ingest-progress', cb: (p: IngestProgress) => void): () => void
   on(channel: 'accounts-changed', cb: () => void): () => void
   on(channel: 'articles-changed', cb: () => void): () => void
+  on(channel: 'team-status', cb: (status: TeamStatus) => void): () => void
   on(channel: 'update-status', cb: (s: UpdateStatus) => void): () => void
 }
 
@@ -83,5 +96,9 @@ export const IPC = {
   articleGet: 'article:get',
   articleMarkRead: 'article:markRead',
   articleArchive: 'article:archive',
-  articleUnreadCounts: 'article:unreadCounts'
+  articleUnreadCounts: 'article:unreadCounts',
+  teamStatus: 'team:status',
+  teamJoin: 'team:join',
+  teamLeave: 'team:leave',
+  teamSyncNow: 'team:syncNow'
 } as const

@@ -3,6 +3,7 @@
 import { ref, computed } from 'vue'
 import { store } from '../stores/app'
 import QuotaPanel from './QuotaPanel.vue'
+import TeamPanel from './TeamPanel.vue'
 import AddSourceDialog from './AddSourceDialog.vue'
 
 const showAdd = ref(false)
@@ -44,6 +45,7 @@ function dot(sourceId: string): string {
     <button class="add" @click="showAdd = true">+ 加公众号</button>
 
     <div class="spacer"></div>
+    <TeamPanel />
     <QuotaPanel />
     <button class="check-update" @click="store.checkUpdate()">检查更新</button>
 

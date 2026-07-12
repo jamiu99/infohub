@@ -15,7 +15,7 @@ import type { Article, Source, RawItem } from '../../shared/contract'
 import type { Paths } from '../paths'
 import { articleToMarkdown, parseArticleMarkdown } from './markdown'
 
-const STORE_SCHEMA_VERSION = 2
+const STORE_SCHEMA_VERSION = 3
 const FILE_SYNC_THROTTLE_MS = 500
 
 /** 文件先写临时文件再 rename；失败时旧文件仍完整。 */
@@ -71,7 +71,8 @@ export class Store {
         archived     INTEGER DEFAULT 0,
         file_path    TEXT,
         created_at   INTEGER,
-        updated_at   INTEGER
+        updated_at   INTEGER,
+        contributed_by_me INTEGER NOT NULL DEFAULT 1
       );
       CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(published_at);
       CREATE INDEX IF NOT EXISTS idx_articles_source ON articles(source_id);
@@ -86,6 +87,10 @@ export class Store {
         value TEXT NOT NULL
       );
     `)
+    const columns = this.db.prepare('PRAGMA table_info(articles)').all() as Array<{ name: string }>
+    if (!columns.some((column) => column.name === 'contributed_by_me')) {
+      this.db.exec('ALTER TABLE articles ADD COLUMN contributed_by_me INTEGER NOT NULL DEFAULT 1')
+    }
   }
 
   /**
@@ -166,15 +171,16 @@ export class Store {
       .prepare(
         `INSERT INTO articles
           (id, title, published_at, source_id, source_type, source_url, summary, score,
-           staleness, tags, read, archived, file_path, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          staleness, tags, read, archived, file_path, created_at, updated_at, contributed_by_me)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET
            title=excluded.title, published_at=excluded.published_at,
            source_id=excluded.source_id, source_type=excluded.source_type,
            source_url=excluded.source_url, summary=excluded.summary,
            score=excluded.score, staleness=excluded.staleness, tags=excluded.tags,
            read=excluded.read, archived=excluded.archived, file_path=excluded.file_path,
-           created_at=excluded.created_at, updated_at=excluded.updated_at`
+           created_at=excluded.created_at, updated_at=excluded.updated_at,
+           contributed_by_me=excluded.contributed_by_me`
       )
       .run(
         a.id,
@@ -191,15 +197,21 @@ export class Store {
         a.archived ? 1 : 0,
         a.filePath ?? null,
         a.createdAt,
-        a.updatedAt
+        a.updatedAt,
+        a.team?.contributedByMe === false ? 0 : 1
       )
   }
 
-  listArticles(opts?: { sourceId?: string; filter?: 'unread' | 'all' | 'archived' }): Article[] {
+  listArticles(opts?: {
+    sourceId?: string
+    filter?: 'unread' | 'all' | 'archived'
+    scope?: 'mine' | 'team'
+  }): Article[] {
     this.syncIndexFromFiles()
     const where: string[] = []
     const params: string[] = []
     const filter = opts?.filter ?? 'all'
+    if ((opts?.scope ?? 'mine') === 'mine') where.push('contributed_by_me = 1')
     if (opts?.sourceId) {
       where.push('source_id = ?')
       params.push(opts.sourceId)
@@ -212,6 +224,15 @@ export class Store {
       'ORDER BY published_at DESC LIMIT 500'
     const rows = this.db.prepare(sql).all(...params) as Array<{ id: string }>
     return rows.map((r) => this.getArticle(r.id)).filter((a): a is Article => !!a)
+  }
+
+  /** 首次加入团队时使用：枚举全部本机贡献（含已归档），不受看板 500 条上限影响。 */
+  listContributedArticlesForSync(): Article[] {
+    this.syncIndexFromFiles(true)
+    const rows = this.db
+      .prepare('SELECT id FROM articles WHERE contributed_by_me = 1 ORDER BY published_at ASC')
+      .all() as Array<{ id: string }>
+    return rows.map((row) => this.getArticle(row.id)).filter((article): article is Article => !!article)
   }
 
   getArticle(id: string): Article | null {
@@ -229,12 +250,35 @@ export class Store {
     return parseArticleMarkdown(readFileSync(full, 'utf8'), row.file_path)
   }
 
-  /** 删除某源的全部文章（文件 + 索引 + 已见记录）。取关时调用，避免孤儿数据。 */
+  findArticleByExternalId(sourceId: string, externalId: string): Article | null {
+    const row = this.db
+      .prepare('SELECT article_id FROM seen_items WHERE source_id = ? AND external_id = ?')
+      .get(sourceId, externalId) as { article_id: string } | undefined
+    return row ? this.getArticle(row.article_id) : null
+  }
+
+  /**
+   * 取消本地关注：纯本地文章删除；已有团队 remoteId 的副本继续保留在团队视图。
+   * retained 文章的 seen 映射会重建为团队语义，后续 pull/重新订阅仍命中同一文件。
+   */
   purgeSource(sourceId: string): void {
     const rows = this.db
-      .prepare('SELECT file_path FROM articles WHERE source_id = ?')
-      .all(sourceId) as Array<{ file_path: string | null }>
+      .prepare('SELECT id, file_path FROM articles WHERE source_id = ?')
+      .all(sourceId) as Array<{ id: string; file_path: string | null }>
+    const retained: Article[] = []
     for (const r of rows) {
+      const article = this.getArticle(r.id)
+      if (article?.team?.remoteId) {
+        retained.push(this.saveArticle({
+          ...article,
+          team: {
+            ...article.team,
+            contributedByMe: false,
+            detachedFromLocalSource: true
+          }
+        }))
+        continue
+      }
       if (r.file_path) {
         let full: string
         try {
@@ -244,9 +288,13 @@ export class Store {
         }
         if (existsSync(full)) rmSync(full, { force: true })
       }
+      this.db.prepare('DELETE FROM articles WHERE id = ?').run(r.id)
     }
-    this.db.prepare('DELETE FROM articles WHERE source_id = ?').run(sourceId)
+    // 清掉旧映射，再只为保留的团队副本登记映射；映射的 mine/team 语义来自 Article 文件。
     this.db.prepare('DELETE FROM seen_items WHERE source_id = ?').run(sourceId)
+    for (const article of retained) {
+      if (article.externalId) this.markSeen(sourceId, article.externalId, article.id)
+    }
   }
 
   setRead(id: string, read: boolean): void {
@@ -266,7 +314,9 @@ export class Store {
   unreadCounts(): Record<string, number> {
     this.syncIndexFromFiles()
     const rows = this.db
-      .prepare('SELECT source_id, COUNT(*) c FROM articles WHERE read = 0 AND archived = 0 GROUP BY source_id')
+      .prepare(
+        'SELECT source_id, COUNT(*) c FROM articles WHERE read = 0 AND archived = 0 AND contributed_by_me = 1 GROUP BY source_id'
+      )
       .all() as Array<{ source_id: string; c: number }>
     const out: Record<string, number> = {}
     for (const r of rows) out[r.source_id] = r.c

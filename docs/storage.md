@@ -2,7 +2,7 @@
 
 > 上级：[overview.md](overview.md) · 契约：[contract.md](contract.md)
 
-原则是：**文章文件为内容源，SQLite 是派生索引。** schema v2 已把阅读状态、去重键和外部文件变化纳入可同步、可重建流程。
+原则是：**文章文件为内容源，SQLite 是派生索引。** schema v3 在 v2 的阅读状态、去重键和外部文件同步基础上，增加可由文件重建的本机团队贡献标记。
 
 ## 运行时布局
 
@@ -16,14 +16,21 @@ data/
 ├── index.sqlite
 ├── sources.json
 ├── settings.json
-└── secrets/wx-accounts.enc
+├── team/
+│   ├── outbox/*.json
+│   ├── acked/*.ack
+│   ├── quarantine/*.json
+│   └── sync-state.json
+└── secrets/
+    ├── wx-accounts.enc
+    └── team-device.enc
 ```
 
 仓库 `.gitignore` 已排除根级 `data/`。打包应用使用系统用户数据目录，开发环境通常也落到该目录；不要把真实凭据复制回仓库。
 
 旧版本创建的 `.claude/skills/`、`briefings/` 或 `README.md` 不会被自动删除，但新版本完全忽略它们。
 
-`settings.json` 只保存非敏感运行设置，目前包含 `wechat.hourlyRequestLimit`。它使用临时文件 + rename 更新；文件缺失、损坏或字段越界时回退默认 20。账号 Cookie、token 和限流观测仍在 `secrets/wx-accounts.enc`，不会写入该明文设置文件。
+`settings.json` 只保存非敏感运行设置，目前包含 `wechat.hourlyRequestLimit` 与团队地址/启用状态。它使用临时文件 + rename 更新；文件缺失、损坏或字段越界时回退保守默认值。账号 Cookie、token 和限流观测仍在 `secrets/wx-accounts.enc`，团队设备 token 在 `secrets/team-device.enc`；这些都不会写入明文设置文件。首次入组的共享 `TEAM_TOKEN` 不持久化。
 
 ## 文章文件
 
@@ -38,6 +45,7 @@ publishedAt: 1750925178000
 sourceUrl: "https://mp.weixin.qq.com/s?..."
 source: {"id":"wx-Mzk0","type":"wechat","name":"示例公众号"}
 ext: {"fakeid":"Mzk0...","author_name":"作者"}
+team: {"remoteId":"art_...","contributedByMe":false,"contributors":[]}
 read: false
 archived: false
 createdAt: 1750925200000
@@ -47,7 +55,7 @@ updatedAt: 1750925200000
 正文 Markdown
 ```
 
-实现：`src/core/store/markdown.ts`。`filePath` 只保存在 SQLite/运行时对象，不写入 frontmatter。新文章不写 `summary/score/tags` 等空占位；旧文件中的非空兼容注释会保留。
+实现：`src/core/store/markdown.ts`。`filePath` 只保存在 SQLite/运行时对象，不写入 frontmatter。`team` 仅在团队文章存在时写入；旧文件没有该字段时按本机历史贡献处理。新文章不写 `summary/score/tags` 等空占位；旧文件中的非空兼容注释会保留。
 
 ## 当前 SQLite schema
 
@@ -69,7 +77,8 @@ CREATE TABLE articles (
   archived      INTEGER DEFAULT 0,
   file_path     TEXT,
   created_at    INTEGER,
-  updated_at    INTEGER
+  updated_at    INTEGER,
+  contributed_by_me INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE seen_items (
@@ -85,7 +94,17 @@ CREATE TABLE store_meta (
 );
 ```
 
-另有 `published_at`、`source_id` 普通索引。`summary/score/staleness/tags` 列只为兼容已发布的 v0.1.0 schema，不是产品核心字段。**FTS5 当前未创建**，全文检索属于后续能力。
+另有 `published_at`、`source_id` 普通索引。`contributed_by_me` 由 Article frontmatter 的 `team.contributedByMe` 派生，用于“我的 / 团队”筛选；无 `team` 的旧文件默认是本机贡献。`summary/score/staleness/tags` 列只为兼容已发布的 v0.1.0 schema，不是产品核心字段。**FTS5 当前未创建**，全文检索属于后续能力。
+
+## 团队同步状态
+
+- `team/outbox/*.json`：本地 Article 成功落盘后生成的一事件一文件队列。eventId 由团队实例、设备和完整公开 payload 确定性派生；断网或进程退出会保留。
+- `team/acked/*.ack`：服务端 2xx 后先原子写入的确认标记，再删除 outbox。每次启动重扫历史文章时，已确认或已排队事件会跳过。
+- `team/quarantine/*.json`：无法解析、超过协议限制、包含私有 RSS 凭据或被服务端永久 4xx 拒绝的事件。坏项被隔离后不阻塞其余事件。
+- `team/sync-state.json`：服务端增量 pull 的单调 cursor；文章页全部落盘后才推进。
+- `secrets/team-device.enc`：服务端签发的设备凭据，必须使用 Electron `safeStorage`；不可用时拒绝入组落盘。
+
+退出团队会清空 outbox、acked、quarantine、cursor 和设备凭据，但不会删除已同步到本机的 Article。重新加入后会从 Article 文件枚举全部本机贡献并重新排队，因此不依赖旧 outbox 才能恢复。
 
 ## 写入与去重
 
@@ -97,7 +116,7 @@ CREATE TABLE store_meta (
 4. 原子写文章 Markdown（临时文件 + rename）。
 5. upsert `articles`，并由 `saveArticle()` 自动登记 `seen_items`。
 
-公众号 `externalId` 优先用文章 link，RSS 用 guid 或 link。取关时 `purgeSource()` 会删除该源的文章文件、`articles` 与 `seen_items`；原始 `raw/` 目前不会清理。
+公众号 `externalId` 优先用文章 link，RSS 用 guid 或 link。取关时 `purgeSource()` 删除纯本地文章；带 `team.remoteId` 的团队副本继续保留，并重建 `seen_items` 防止 pull 或重新订阅产生重复。原始 `raw/` 目前不会清理。
 
 ## schema v2 一致性与迁移
 
@@ -119,6 +138,10 @@ CREATE TABLE store_meta (
 
 迁移不修改正文或已有的非空兼容注释。
 
+### schema v3 团队贡献索引
+
+升级到 v3 时，`articles` 增加 `contributed_by_me`，随后仍从所有 Article 文件完整重建。旧文件没有 `team`，默认写入 `1`；团队 pull 的文件依据 `team.contributedByMe` 写入 `0/1`。SQLite 丢失后，“我的 / 团队”范围仍能恢复。
+
 ### 外部文件变化
 
 - App 每次启动完整重建索引。
@@ -129,7 +152,7 @@ CREATE TABLE store_meta (
 
 ## 敏感数据
 
-`src/main/secrets.ts` 在 `safeStorage.isEncryptionAvailable()` 时使用系统 keychain 加密账号池；不可用时回退成明文 JSON，文件名仍为 `.enc`。
+`src/main/secrets.ts` 在 `safeStorage.isEncryptionAvailable()` 时使用系统 keychain 加密账号池；不可用时仍会回退成明文，文件名仍为 `.enc`。`src/main/team-secrets.ts` 的团队设备 token 不允许该 fallback：没有安全存储时入组失败，不写明文。
 
 - 该回退曾为个人 WSL 开发场景接受，不代表适合公开分发。
 - UI 当前没有明确显示“凭据正在明文保存”。

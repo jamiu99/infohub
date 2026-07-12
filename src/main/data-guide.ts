@@ -16,7 +16,8 @@ infohub 只负责采集、归一化、索引和看板展示。外部程序通过
 - <code>sources.json</code>：当前关注的信源。
 - <code>settings.json</code>：infohub 的非敏感本地运行设置，不属于内容接口。
 - <code>index.sqlite</code>：由文章文件重建的查询、状态与去重索引。
-- <code>secrets/</code>：登录凭据，任何外部消费者都不应读取、复制或索引。
+- <code>team/</code>：团队 outbox、acked、quarantine 和增量游标，属于内部同步状态，不是内容接口。
+- <code>secrets/</code>：登录凭据和团队设备 token，任何外部消费者都不应读取、复制或索引。
 
 ## Article 文件
 
@@ -26,6 +27,7 @@ infohub 只负责采集、归一化、索引和看板展示。外部程序通过
 - <code>title</code>、<code>publishedAt</code>、<code>sourceUrl</code>
 - <code>source: { id, type, name }</code>
 - <code>ext</code>：信源特有的原始元数据
+- <code>team</code>（可选）：团队文章 ID、贡献者和本机是否贡献；不包含登录凭据
 - <code>read</code>、<code>archived</code>、<code>createdAt</code>、<code>updatedAt</code>
 
 ## 消费约定

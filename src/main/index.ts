@@ -105,12 +105,19 @@ function createWindow(): void {
           if (!window.api || typeof window.api.account?.list !== 'function') return false;
           if (typeof window.api.account?.getCollectionSettings !== 'function') return false;
           if (typeof window.api.account?.setHourlyRequestLimit !== 'function') return false;
+          if (typeof window.api.team?.status !== 'function') return false;
+          if (typeof window.api.team?.join !== 'function') return false;
+          if (typeof window.api.team?.leave !== 'function') return false;
+          if (typeof window.api.team?.syncNow !== 'function') return false;
           const accounts = await window.api.account.list();
+          const team = await window.api.team.status();
           const initial = await window.api.account.getCollectionSettings();
           const updated = await window.api.account.setHourlyRequestLimit(23);
           const reread = await window.api.account.getCollectionSettings();
           return Array.isArray(accounts)
             && initial?.hourlyRequestLimit === 20
+            && team?.state === 'disabled'
+            && team?.serverUrl === 'https://home.agent-wiki.cn:18038'
             && updated?.hourlyRequestLimit === 23
             && reread?.hourlyRequestLimit === 23;
         })()`)

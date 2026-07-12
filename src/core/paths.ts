@@ -10,6 +10,12 @@ export interface Paths {
   settings: string // data/settings.json（非敏感运行设置）
   secrets: string // data/secrets/
   wxAccounts: string // data/secrets/wx-accounts.enc
+  teamDevice: string // data/secrets/team-device.enc
+  team: string // data/team/
+  teamOutbox: string // data/team/outbox/
+  teamAcked: string // data/team/acked/
+  teamQuarantine: string // data/team/quarantine/
+  teamState: string // data/team/sync-state.json
   guide: string // data/INFOHUB_DATA.md（机器/人工可读的数据接口说明）
 }
 
@@ -23,6 +29,12 @@ export function makePaths(dataRoot: string): Paths {
     settings: join(dataRoot, 'settings.json'),
     secrets: join(dataRoot, 'secrets'),
     wxAccounts: join(dataRoot, 'secrets', 'wx-accounts.enc'),
+    teamDevice: join(dataRoot, 'secrets', 'team-device.enc'),
+    team: join(dataRoot, 'team'),
+    teamOutbox: join(dataRoot, 'team', 'outbox'),
+    teamAcked: join(dataRoot, 'team', 'acked'),
+    teamQuarantine: join(dataRoot, 'team', 'quarantine'),
+    teamState: join(dataRoot, 'team', 'sync-state.json'),
     guide: join(dataRoot, 'INFOHUB_DATA.md')
   }
 }

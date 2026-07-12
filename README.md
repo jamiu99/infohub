@@ -19,11 +19,12 @@ infohub 只做四件事：
 - RSS/Atom URL 解析、超时重试、采集与统一入库。
 - 三栏看板：信源、文章流、正文详情、未读和归档。
 - Article Markdown、Raw JSON、`sources.json` 与 Node 内置 `node:sqlite` 索引。
-- schema v2 旧数据迁移、文件/索引同步、去重表完整重建。
+- schema v3 旧数据迁移、文件/索引同步、去重表完整重建。
+- 可选的自托管团队共享：HTTPS 入组、可靠 outbox、增量同步和“我的 / 团队”视图。
 - 外部内容 URL 白名单、DOMPurify、CSP 与 Electron renderer sandbox。
 - Windows NSIS Release 与用户确认式自动更新。
 
-当前版本是 `v0.1.5`。桌面 preload/IPC 桥、核心数据链路、传统“检查—确认—下载—重启”更新流程、公众号二维码登录和可配置采集配额已就绪；桌面全流程、凭据兜底、错误反馈与探测脚本仍需稳定化，详见 [docs/overview.md](docs/overview.md)。
+当前版本是 `v0.2.0`。桌面 preload/IPC 桥、核心数据链路、传统“检查—确认—下载—重启”更新流程、公众号二维码登录、可配置采集配额与团队共享 MVP 已就绪；默认团队服务仍需部署，桌面全流程和多设备同步仍需人工验收，详见 [docs/overview.md](docs/overview.md)。
 
 ## 开发与验证
 
@@ -62,7 +63,8 @@ projects/infohub/start.sh
 - `sources.json`：关注信源。
 - `settings.json`：非敏感本地运行设置。
 - `index.sqlite`：可从 Article 文件完整重建的查询、状态与去重索引。
-- `secrets/`：公众号凭据，禁止外部消费者读取。
+- `team/`：可靠上传队列和增量同步游标，不属于内容接口。
+- `secrets/`：公众号与团队设备凭据，禁止外部消费者读取。
 
 ## 文档入口
 
@@ -70,6 +72,7 @@ projects/infohub/start.sh
 - [文件系统与 SQLite 数据接口](docs/data-interface.md)
 - [架构与模块边界](docs/architecture.md)
 - [存储、迁移与重建](docs/storage.md)
+- [团队共享与自托管服务](docs/team-sharing.md)
 - [开发验证与已知问题](docs/dev-log.md)
 - [发布与自动更新](docs/release.md)
 - [决策日志](docs/decisions.md)

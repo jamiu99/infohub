@@ -25,6 +25,12 @@ const api: InfohubApi = {
     archive: (id) => ipcRenderer.invoke(IPC.articleArchive, id),
     unreadCounts: () => ipcRenderer.invoke(IPC.articleUnreadCounts)
   },
+  team: {
+    status: () => ipcRenderer.invoke(IPC.teamStatus),
+    join: (input) => ipcRenderer.invoke(IPC.teamJoin, input),
+    leave: () => ipcRenderer.invoke(IPC.teamLeave),
+    syncNow: () => ipcRenderer.invoke(IPC.teamSyncNow)
+  },
   update: {
     check: () => ipcRenderer.invoke('update:check'),
     install: () => ipcRenderer.invoke('update:install')

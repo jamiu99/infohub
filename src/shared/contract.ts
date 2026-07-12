@@ -1,5 +1,6 @@
 // 数据契约 —— 模块解耦的"接头暗号"。改字段务必同步 docs/contract.md。
 // 所有时间统一 UTC 毫秒时间戳（存 UTC，展示本地时区）。
+import type { TeamArticleOrigin } from './team'
 
 /** 信源定义 */
 export interface Source {
@@ -48,6 +49,9 @@ export interface Article {
 
   // 可拓展字段：不同信源特色元数据
   ext: Record<string, unknown>
+
+  /** 团队同步来源；旧文件无此字段时视为本机历史数据。 */
+  team?: TeamArticleOrigin
 
   // 存储/状态元信息
   filePath?: string

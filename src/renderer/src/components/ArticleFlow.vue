@@ -8,6 +8,7 @@ const articles = computed(() => store.state.articles)
 const selectedId = computed(() => store.state.selectedArticle?.id)
 const progress = computed(() => store.state.progress)
 const busy = computed(() => progress.value.phase !== 'idle')
+const teamAvailable = computed(() => Boolean(store.state.team?.device))
 
 const title = computed(() => {
   const id = store.state.selectedSourceId
@@ -23,16 +24,36 @@ function refresh(): void {
 <template>
   <div class="wrap">
     <header>
-      <h2>{{ title }}</h2>
+      <div class="title-row">
+        <h2>{{ title }}</h2>
+        <button :disabled="busy" class="refresh" @click="refresh">
+          {{ busy ? '采集中…' : '⟳ 刷新' }}
+        </button>
+      </div>
       <div class="tools">
+        <div class="scope-tabs" aria-label="文章范围">
+          <button
+            :class="{ active: store.state.articleScope === 'mine' }"
+            :aria-pressed="store.state.articleScope === 'mine'"
+            @click="store.setArticleScope('mine')"
+          >
+            我的
+          </button>
+          <button
+            :class="{ active: store.state.articleScope === 'team' }"
+            :aria-pressed="store.state.articleScope === 'team'"
+            :disabled="!teamAvailable"
+            :title="teamAvailable ? '查看团队共享文章' : '加入团队后可用'"
+            @click="store.setArticleScope('team')"
+          >
+            团队
+          </button>
+        </div>
         <select :value="store.state.filter" @change="store.setFilter(($event.target as HTMLSelectElement).value as any)">
           <option value="all">全部</option>
           <option value="unread">未读</option>
           <option value="archived">已归档</option>
         </select>
-        <button :disabled="busy" @click="refresh">
-          {{ busy ? '采集中…' : '⟳ 刷新' }}
-        </button>
       </div>
     </header>
 
@@ -45,7 +66,12 @@ function refresh(): void {
       </template>
     </div>
 
-    <ul v-if="articles.length" class="list">
+    <div v-if="store.state.articlesLoading" class="load-state">正在加载文章…</div>
+    <div v-else-if="store.state.articlesError" class="load-state error">
+      <p>{{ store.state.articlesError }}</p>
+      <button @click="store.loadArticles()">重试</button>
+    </div>
+    <ul v-else-if="articles.length" class="list">
       <li
         v-for="a in articles"
         :key="a.id"
@@ -60,8 +86,14 @@ function refresh(): void {
       </li>
     </ul>
     <div v-else class="empty">
-      <p>暂无文章。</p>
-      <p class="hint">先扫码登录 → 加公众号，即可自动采集。</p>
+      <template v-if="store.state.articleScope === 'team'">
+        <p>团队里还没有同步到文章。</p>
+        <p class="hint">其他成员上传采集结果后，会显示在这里。</p>
+      </template>
+      <template v-else>
+        <p>暂无文章。</p>
+        <p class="hint">先扫码登录 → 加公众号，即可自动采集。</p>
+      </template>
     </div>
   </div>
 </template>
@@ -74,11 +106,17 @@ function refresh(): void {
 }
 header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 8px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   min-height: 52px;
+}
+.title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
 }
 h2 {
   margin: 0;
@@ -87,7 +125,35 @@ h2 {
 }
 .tools {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
+  width: 100%;
+}
+.scope-tabs {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+}
+.scope-tabs button {
+  border: 0;
+  padding: 3px 10px;
+  background: transparent;
+  color: var(--text-dim);
+  box-shadow: none;
+}
+.scope-tabs button.active {
+  background: var(--bg-elevated);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+.scope-tabs button:disabled {
+  opacity: 0.42;
+}
+.refresh {
+  padding: 4px 9px;
 }
 select {
   width: auto;
@@ -147,6 +213,18 @@ select {
   color: var(--text-dim);
   margin-top: 64px;
   padding: 0 24px;
+}
+.load-state {
+  margin-top: 64px;
+  padding: 0 24px;
+  text-align: center;
+  color: var(--text-dim);
+}
+.load-state.error {
+  color: var(--warn);
+}
+.load-state p {
+  margin: 0 0 10px;
 }
 .empty p {
   margin: 6px 0;

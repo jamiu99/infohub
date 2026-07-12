@@ -26,6 +26,10 @@ import {
   type InfohubSettings
 } from '../core/settings'
 import { validateWechatHourlyLimit } from '../core/collect/rate-limit'
+import { TeamSyncClient } from '../core/team/sync-client'
+import { applyRemoteArticle } from '../core/team/apply-remote'
+import { clearTeamCredentials, loadTeamCredentials, saveTeamCredentials } from './team-secrets'
+import { rssSourceId, validateTeamServerUrl, type TeamJoinInput } from '../shared/team'
 
 export class Service {
   private store: Store
@@ -33,6 +37,7 @@ export class Service {
   private collector: Collector
   private registry: AdapterRegistry
   private settings: InfohubSettings
+  private team: TeamSyncClient
   private stopped = false
   private paths = makePaths(join(app.getPath('userData'), 'data'))
 
@@ -44,11 +49,28 @@ export class Service {
       persist: (a) => saveAccounts(this.paths.wxAccounts, a),
       onChange: () => this.broadcast('accounts-changed')
     })
+    this.team = new TeamSyncClient({
+      paths: this.paths,
+      serverUrl: this.settings.team.serverUrl,
+      enabled: this.settings.team.enabled,
+      credentials: loadTeamCredentials(this.paths.teamDevice),
+      onCredentials: (credentials) => {
+        if (credentials) saveTeamCredentials(this.paths.teamDevice, credentials)
+        else clearTeamCredentials(this.paths.teamDevice)
+      },
+      onRemoteArticle: (record, mine) => {
+        applyRemoteArticle(this.store, record, mine, this.store.listSources())
+      },
+      onRemoteArticlesChanged: () => this.broadcast('articles-changed'),
+      onStatus: (status) => this.broadcast('team-status', status)
+    })
     // 注册各信源 adapter（加新信源只需在这里多注册一个）
     this.registry = new AdapterRegistry()
     this.registry.register(new WechatAdapter(this.pool))
     this.registry.register(new RssAdapter())
-    this.collector = new Collector(this.registry, this.store)
+    this.collector = new Collector(this.registry, this.store, (source, article) => {
+      this.team.enqueue(source, article)
+    })
   }
 
   private broadcast(channel: string, ...args: unknown[]): void {
@@ -71,12 +93,17 @@ export class Service {
   private makeSourceId(type: string, result: DiscoverResult): string {
     const c = result.config as { fakeid?: string; feedUrl?: string }
     if (type === 'wechat' && c.fakeid) return `wx-${c.fakeid}`
-    if (type === 'rss' && c.feedUrl) {
-      let h = 0
-      for (let i = 0; i < c.feedUrl.length; i++) h = (h * 31 + c.feedUrl.charCodeAt(i)) | 0
-      return `rss-${(h >>> 0).toString(36)}`
-    }
+    if (type === 'rss' && c.feedUrl) return rssSourceId(c.feedUrl)
     return `${type}-${randomUUID().slice(0, 8)}`
+  }
+
+  /** 确定性事件 + ack 标记使该扫描可在每次启动安全重跑。 */
+  private seedTeamHistory(): void {
+    if (!this.team.status().device) return
+    this.team.seedExisting(
+      this.store.listSources(),
+      this.store.listContributedArticlesForSync()
+    )
   }
 
   /** 后台采集一个源：广播进度（polling→idle），完成后刷新文章流。不阻塞调用方。 */
@@ -122,6 +149,14 @@ export class Service {
       console.error('ensureDataGuide failed:', (e as Error).message)
     }
     // 注意：不启动任何自动轮询定时器。采集只由用户手动触发（source:refresh）。
+    // 每次已加入的 App 启动都重扫；已 ack/已排队的确定性事件会自动跳过。
+    try {
+      this.seedTeamHistory()
+    } catch (error) {
+      console.error('启动时恢复历史团队数据失败:', error)
+    }
+    // 团队定时器只同步已落盘 outbox/团队增量，不会触发任何微信或 RSS 采集。
+    this.team.start()
   }
 
   private registerIpc(): void {
@@ -148,7 +183,7 @@ export class Service {
     this.handle(IPC.accountGetCollectionSettings, () => toWechatCollectionSettings(this.settings))
     this.handle(IPC.accountSetHourlyRequestLimit, (rawValue) => {
       const hourlyRequestLimit = validateWechatHourlyLimit(rawValue)
-      const next: InfohubSettings = { wechat: { hourlyRequestLimit } }
+      const next: InfohubSettings = { ...this.settings, wechat: { hourlyRequestLimit } }
       // 先确保配置成功落盘，再切换内存账号池，避免 UI 与磁盘状态分叉。
       saveSettings(this.paths.settings, next)
       this.settings = next
@@ -189,19 +224,68 @@ export class Service {
 
     // —— 文章 ——
     this.handle(IPC.articleList, (opts) => {
+      const options = opts as {
+        sourceId?: string
+        filter?: 'unread' | 'all' | 'archived'
+        scope?: 'mine' | 'team'
+      } | undefined
+      const articles = this.store.listArticles(options)
+      if (options?.scope === 'team') return articles
       const followed = new Set(this.store.listSources().map((s) => s.id))
-      return this.store.listArticles(opts as never).filter((a) => followed.has(a.source.id))
+      return articles.filter((a) => followed.has(a.source.id))
     })
     this.handle(IPC.articleGet, (id) => this.store.getArticle(id as string))
     this.handle(IPC.articleMarkRead, (id, read) => this.store.setRead(id as string, read as boolean))
     this.handle(IPC.articleArchive, (id) => this.store.setArchived(id as string, true))
     this.handle(IPC.articleUnreadCounts, () => this.store.unreadCounts())
+
+    // —— 团队同步 ——
+    this.handle(IPC.teamStatus, () => this.team.status())
+    this.handle(IPC.teamJoin, async (rawInput) => {
+      const input = rawInput as TeamJoinInput
+      const serverUrl = validateTeamServerUrl(input.serverUrl)
+      const status = await this.team.join({ ...input, serverUrl })
+      const next: InfohubSettings = {
+        ...this.settings,
+        team: { serverUrl, enabled: true }
+      }
+      try {
+        saveSettings(this.paths.settings, next)
+      } catch (error) {
+        this.team.leave()
+        throw error
+      }
+      this.settings = next
+      this.team.configure(next.team)
+      // 立即返回加入结果；历史数据排队和网络同步放到下一轮事件循环，不阻塞本地看板。
+      setImmediate(() => {
+        if (this.stopped) return
+        try {
+          this.seedTeamHistory()
+        } catch (error) {
+          console.error('历史团队数据排队失败:', error)
+        }
+        void this.team.syncNow()
+      })
+      return status
+    })
+    this.handle(IPC.teamLeave, () => {
+      const next: InfohubSettings = {
+        ...this.settings,
+        team: { ...this.settings.team, enabled: false }
+      }
+      saveSettings(this.paths.settings, next)
+      this.settings = next
+      return this.team.leave()
+    })
+    this.handle(IPC.teamSyncNow, () => this.team.syncNow())
   }
 
   stop(): void {
     if (this.stopped) return
     this.stopped = true
-    // 无定时器；关闭 SQLite 连接，确保文件/索引写入完成。
+    this.team.stop()
+    // 关闭 SQLite 连接，确保文件/索引写入完成。
     this.store.close()
   }
 }

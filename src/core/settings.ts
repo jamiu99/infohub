@@ -6,16 +6,22 @@ import {
   WECHAT_HOURLY_LIMIT,
   validateWechatHourlyLimit
 } from './collect/rate-limit'
+import { DEFAULT_TEAM_SERVER_URL, validateTeamServerUrl } from '../shared/team'
 
 export interface InfohubSettings {
   wechat: {
     hourlyRequestLimit: number
   }
+  team: {
+    serverUrl: string
+    enabled: boolean
+  }
 }
 
 export function defaultSettings(): InfohubSettings {
   return {
-    wechat: { hourlyRequestLimit: WECHAT_HOURLY_LIMIT.default }
+    wechat: { hourlyRequestLimit: WECHAT_HOURLY_LIMIT.default },
+    team: { serverUrl: DEFAULT_TEAM_SERVER_URL, enabled: false }
   }
 }
 
@@ -25,9 +31,19 @@ export function loadSettings(path: string): InfohubSettings {
   try {
     const parsed = JSON.parse(readFileSync(path, 'utf8')) as {
       wechat?: { hourlyRequestLimit?: unknown }
+      team?: { serverUrl?: unknown; enabled?: unknown }
     }
     const hourlyRequestLimit = validateWechatHourlyLimit(parsed.wechat?.hourlyRequestLimit)
-    return { wechat: { hourlyRequestLimit } }
+    let serverUrl = DEFAULT_TEAM_SERVER_URL
+    try {
+      serverUrl = validateTeamServerUrl(parsed.team?.serverUrl ?? DEFAULT_TEAM_SERVER_URL)
+    } catch {
+      // 损坏的团队 URL 不应阻止本地应用启动。
+    }
+    return {
+      wechat: { hourlyRequestLimit },
+      team: { serverUrl, enabled: parsed.team?.enabled === true }
+    }
   } catch {
     return defaultSettings()
   }
@@ -36,7 +52,13 @@ export function loadSettings(path: string): InfohubSettings {
 /** 先写临时文件再替换，写入失败时保留原配置。 */
 export function saveSettings(path: string, settings: InfohubSettings): void {
   const hourlyRequestLimit = validateWechatHourlyLimit(settings.wechat.hourlyRequestLimit)
-  const normalized: InfohubSettings = { wechat: { hourlyRequestLimit } }
+  const normalized: InfohubSettings = {
+    wechat: { hourlyRequestLimit },
+    team: {
+      serverUrl: validateTeamServerUrl(settings.team.serverUrl),
+      enabled: settings.team.enabled === true
+    }
+  }
   const tmp = `${path}.${process.pid}.tmp`
   mkdirSync(dirname(path), { recursive: true })
   try {
