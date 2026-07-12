@@ -21,7 +21,7 @@
 └──────────────────────────────────────────────────────────┘
 ```
 
-renderer 使用 `contextIsolation: true`、`nodeIntegration: false`、`sandbox: true`，不直接访问文件、SQLite、登录凭据或采集网络。所有操作经 [src/shared/ipc.ts](../src/shared/ipc.ts) 进入 main。
+renderer 使用 `contextIsolation: true`、`nodeIntegration: false`、`sandbox: true`，不直接访问文件、SQLite、登录凭据或采集网络。preload 必须打包成 sandbox 支持的单文件 CommonJS `index.cjs`，所有操作经 [src/shared/ipc.ts](../src/shared/ipc.ts) 进入 main。
 
 当前是一个桌面仓库和发布物，但运行时前后端边界明确。如果未来增加远程服务，必须建立独立后端项目和 API，不能把服务逻辑塞进 renderer。
 

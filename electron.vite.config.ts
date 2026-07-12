@@ -13,7 +13,13 @@ export default defineConfig({
   preload: {
     build: {
       rollupOptions: {
-        input: { index: resolve(__dirname, 'src/preload/index.ts') }
+        input: { index: resolve(__dirname, 'src/preload/index.ts') },
+        // Sandboxed preload 不支持 ESM import。即使 package.json 是 type=module，
+        // 也必须输出单文件 CommonJS，并使用 .cjs 避免被 Node 当作 ESM。
+        output: {
+          format: 'cjs',
+          entryFileNames: '[name].cjs'
+        }
       }
     }
   },

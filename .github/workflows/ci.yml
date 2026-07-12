@@ -32,3 +32,6 @@ jobs:
 
       - name: Verify
         run: ./verify.sh
+
+      - name: Smoke test desktop preload and IPC
+        run: xvfb-run --auto-servernum pnpm smoke:desktop

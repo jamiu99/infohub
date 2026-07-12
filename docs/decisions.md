@@ -76,6 +76,7 @@
 - **决策**：Markdown renderer 只生成有限标签、只接受绝对 http(s) URL，并用 DOMPurify allowlist 二次清洗；renderer 配 CSP 和 Chromium sandbox；main 只允许 http(s) 交给 `shell.openExternal`。
 - **理由**：公众号/RSS 正文可包含攻击者控制的文本和链接，renderer 又暴露了业务 IPC，必须采用分层防御而非依赖自写转义。
 - **代价**：相对链接、`data:` 图片和非 http(s) scheme 会被丢弃；CSP/sandbox 可能影响少数图片或 preload 行为，发布前需桌面人工验收。
+- **2026-07-13 补充**：sandboxed preload 不支持 ESM import，因此强制输出单文件 CJS，并用真实 Electron smoke test 验证 `window.api` 和 IPC；`v0.1.2` 因违反该约束而撤回。
 
 ## ADR-011 永久取消一切 AI 直接集成
 

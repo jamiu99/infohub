@@ -29,4 +29,5 @@ pnpm test:core
 
 if [[ "${1:-}" != "quick" ]]; then
   pnpm build
+  pnpm verify:bundle
 fi

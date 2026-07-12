@@ -45,6 +45,9 @@ jobs:
       - name: Build (electron-vite)
         run: pnpm build
 
+      - name: Verify desktop bundle
+        run: pnpm verify:bundle
+
       - name: Package & publish (electron-builder)
         run: pnpm exec electron-builder --win --publish always
         env:

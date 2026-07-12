@@ -1,10 +1,16 @@
 import { app, BrowserWindow, shell, Menu, session } from 'electron'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { rmSync } from 'node:fs'
 import { Service } from './service'
 import { initUpdater } from './updater'
 import { isHttpUrl } from '../shared/url'
 
 let service: Service | null = null
+const isDesktopSmokeTest = process.argv.includes('--infohub-smoke-test')
+const smokeDataPath = isDesktopSmokeTest ? join(tmpdir(), `infohub-smoke-${process.pid}`) : null
+
+if (smokeDataPath) app.setPath('userData', smokeDataPath)
 
 // 去掉 Electron 默认的 File/Edit/View/Window 原生菜单栏（这不是浏览器，用不上）
 Menu.setApplicationMenu(null)
@@ -21,13 +27,14 @@ function installImageReferer(): void {
 
 function createWindow(): void {
   const win = new BrowserWindow({
+    show: !isDesktopSmokeTest,
     width: 1280,
     height: 820,
     minWidth: 960,
     minHeight: 600,
     title: 'infohub',
     webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
+      preload: join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true
@@ -53,6 +60,35 @@ function createWindow(): void {
     void win.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
     void win.loadFile(join(__dirname, '../renderer/index.html'))
+  }
+
+  if (isDesktopSmokeTest) {
+    let finished = false
+    const finish = (ok: boolean, detail: string): void => {
+      if (finished) return
+      finished = true
+      console.log(`Desktop bridge smoke test: ${ok ? 'OK' : 'FAILED'} (${detail})`)
+      service?.stop()
+      if (smokeDataPath) rmSync(smokeDataPath, { recursive: true, force: true })
+      app.exit(ok ? 0 : 1)
+    }
+    const timer = setTimeout(() => finish(false, 'timeout'), 15_000)
+    win.webContents.once('did-finish-load', () => {
+      void win.webContents
+        .executeJavaScript(`(async () => {
+          if (!window.api || typeof window.api.account?.list !== 'function') return false;
+          const accounts = await window.api.account.list();
+          return Array.isArray(accounts);
+        })()`)
+        .then((ok) => {
+          clearTimeout(timer)
+          finish(ok === true, ok === true ? 'preload + IPC' : 'bridge missing')
+        })
+        .catch((error: Error) => {
+          clearTimeout(timer)
+          finish(false, error.message)
+        })
+    })
   }
 }
 
