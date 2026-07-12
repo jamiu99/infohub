@@ -33,5 +33,8 @@ jobs:
       - name: Verify
         run: ./verify.sh
 
+      - name: Install Electron runtime for smoke test
+        run: pnpm exec install-electron
+
       - name: Smoke test desktop preload and IPC
         run: xvfb-run --auto-servernum pnpm smoke:desktop
