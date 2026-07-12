@@ -14,11 +14,14 @@ data/
 ├── articles/<sourceType>/<sourceId>/<articleId>.md
 ├── raw/<sourceType>/<sourceId>/<encodedExternalId>.json
 ├── sources.json
+├── settings.json
 ├── index.sqlite
 └── secrets/wx-accounts.enc
 ```
 
 升级前的 `.claude/skills/`、`briefings/` 或旧 `README.md` 可能仍留在用户目录。新版本不会删除用户文件，但不再创建、更新、读取或打包这些目录。
+
+`settings.json` 是 App 的非敏感本地运行设置，不属于稳定内容接口；外部消费者默认无需读取或修改它。
 
 ## Article：稳定内容接口
 

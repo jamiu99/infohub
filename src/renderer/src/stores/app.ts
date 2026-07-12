@@ -1,13 +1,14 @@
 // 前端状态：信源、文章、账号、进度。集中管理并订阅 main 推送。
 import { reactive, readonly } from 'vue'
 import type { Source, Article, DiscoverResult } from '../../../shared/contract'
-import type { WxAccountView } from '../../../shared/wechat'
+import type { WechatCollectionSettings, WxAccountView } from '../../../shared/wechat'
 import type { IngestProgress, UpdateStatus } from '../../../shared/ipc'
 
 interface State {
   sources: Source[]
   unread: Record<string, number>
   accounts: WxAccountView[]
+  wechatSettings: WechatCollectionSettings | null
   articles: Article[]
   selectedSourceId: string | null // null = 全部
   selectedArticle: Article | null
@@ -20,6 +21,7 @@ const state = reactive<State>({
   sources: [],
   unread: {},
   accounts: [],
+  wechatSettings: null,
   articles: [],
   selectedSourceId: null,
   selectedArticle: null,
@@ -34,7 +36,12 @@ export const store = {
   state: readonly(state) as unknown as State,
 
   async init(): Promise<void> {
-    await Promise.all([this.loadSources(), this.loadAccounts(), this.loadArticles()])
+    await Promise.all([
+      this.loadSources(),
+      this.loadAccounts(),
+      this.loadWechatSettings(),
+      this.loadArticles()
+    ])
     api.on('accounts-changed', () => void this.loadAccounts())
     api.on('articles-changed', () => void this.refreshAll())
     api.on('ingest-progress', (p) => (state.progress = p))
@@ -56,6 +63,10 @@ export const store = {
 
   async loadAccounts(): Promise<void> {
     state.accounts = await api.account.list()
+  },
+
+  async loadWechatSettings(): Promise<void> {
+    state.wechatSettings = await api.account.getCollectionSettings()
   },
 
   async loadArticles(): Promise<void> {
@@ -98,6 +109,10 @@ export const store = {
   },
   async relogin(id: string): Promise<void> {
     await api.account.relogin(id)
+    await this.loadAccounts()
+  },
+  async setHourlyRequestLimit(value: number): Promise<void> {
+    state.wechatSettings = await api.account.setHourlyRequestLimit(value)
     await this.loadAccounts()
   },
 

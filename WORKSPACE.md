@@ -4,7 +4,7 @@
 
 infohub 是 **数据采集 + 文件归档 + SQLite 索引 + 快速看板**。外部工具可读取数据，但项目不直接集成 AI、模型、CLI、Skill 或 Agent 工作流。
 
-当前为 `v0.1.4` 稳定化阶段。桌面 preload/IPC 桥、数据一致性、内容渲染、传统二维码登录、用户确认式更新和发布门禁已完成首轮加固；接下来聚焦桌面验收、错误反馈、凭据安全、探测脚本和全文索引。唯一进度入口是 [docs/overview.md](docs/overview.md)。
+当前为 `v0.1.5` 配额观测与稳定化阶段。桌面 preload/IPC 桥、数据一致性、内容渲染、传统二维码登录、用户确认式更新、可配置小时上限和限流观测已完成首轮加固；接下来聚焦桌面验收、错误反馈、凭据安全、探测脚本和全文索引。唯一进度入口是 [docs/overview.md](docs/overview.md)。
 
 ## 目录速览
 
@@ -15,6 +15,7 @@ infohub/
 ├── src/renderer/           # Vue 3 看板前端
 ├── src/core/
 │   ├── collect/            # 采集编排、账号池、限流
+│   ├── settings.ts         # 非敏感运行设置
 │   ├── ingest/             # 微信/RSS Adapter 与网络
 │   ├── process/            # 归一化和正文转换
 │   └── store/              # 文件与 SQLite

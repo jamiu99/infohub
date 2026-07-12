@@ -169,6 +169,7 @@ export function makeAccount(accountId: string, partition: string, r: LoginResult
     partition,
     status: 'active',
     requestsThisHour: 0,
-    windowStart: now
+    windowStart: now,
+    totalRequests: 0
   }
 }

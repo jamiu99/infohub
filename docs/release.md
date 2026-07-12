@@ -6,8 +6,8 @@
 
 2026-07-13 的发布基线：
 
-- 当前源码版本为 `v0.1.4`，发布说明见 [releases/v0.1.4.md](releases/v0.1.4.md)。
-- 上个正式 GitHub Release 是 `v0.1.3`；`v0.1.2` 因 preload 回归已取消并转为 draft。
+- 当前源码版本为 `v0.1.5`，发布说明见 [releases/v0.1.5.md](releases/v0.1.5.md)。
+- 上个正式 GitHub Release 是 `v0.1.4`；`v0.1.2` 因 preload 回归已取消并转为 draft。
 - Release workflow 已在 `v0.1.1` 补齐版本校验、typecheck 和核心测试。
 - 尚无 Windows 安装人工验收或跨版本自动更新验收记录，不能把“存在更新代码”表述为“升级闭环已验收”。
 
@@ -34,17 +34,17 @@ checkout
 
 ## 发布下一版本
 
-不要复用旧 tag。例如发布 `0.1.5`：
+不要复用旧 tag。例如发布 `0.1.6`：
 
 ```bash
 # 1. 更新版本、文档和 release notes
-pnpm version 0.1.5 --no-git-tag-version
+pnpm version 0.1.6 --no-git-tag-version
 ./verify.sh
 
 # 2. 确认工作树、提交和远端正确后再创建 tag
-git tag v0.1.5
+git tag v0.1.6
 git push origin main
-git push origin v0.1.5
+git push origin v0.1.6
 ```
 
 约束：`package.json.version` 必须与 tag 去掉 `v` 后完全一致；Release workflow 会自动阻断不一致发布。

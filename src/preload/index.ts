@@ -7,7 +7,9 @@ const api: InfohubApi = {
     list: () => ipcRenderer.invoke(IPC.accountList),
     login: () => ipcRenderer.invoke(IPC.accountLogin),
     relogin: (id) => ipcRenderer.invoke(IPC.accountRelogin, id),
-    remove: (id) => ipcRenderer.invoke(IPC.accountRemove, id)
+    remove: (id) => ipcRenderer.invoke(IPC.accountRemove, id),
+    getCollectionSettings: () => ipcRenderer.invoke(IPC.accountGetCollectionSettings),
+    setHourlyRequestLimit: (value) => ipcRenderer.invoke(IPC.accountSetHourlyRequestLimit, value)
   },
   source: {
     list: () => ipcRenderer.invoke(IPC.sourceList),

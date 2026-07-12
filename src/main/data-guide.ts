@@ -14,6 +14,7 @@ infohub 只负责采集、归一化、索引和看板展示。外部程序通过
 - <code>articles/&lt;sourceType&gt;/&lt;sourceId&gt;/&lt;articleId&gt;.md</code>：文章内容与元数据，数据真相源。
 - <code>raw/&lt;sourceType&gt;/&lt;sourceId&gt;/*.json</code>：采集原始载荷，用于溯源和重放。
 - <code>sources.json</code>：当前关注的信源。
+- <code>settings.json</code>：infohub 的非敏感本地运行设置，不属于内容接口。
 - <code>index.sqlite</code>：由文章文件重建的查询、状态与去重索引。
 - <code>secrets/</code>：登录凭据，任何外部消费者都不应读取、复制或索引。
 

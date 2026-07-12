@@ -15,7 +15,7 @@ infohub 只做四件事：
 
 ## 当前能力
 
-- 微信公众号独立分区扫码登录、多账号池、保守限流和手动串行采集。
+- 微信公众号独立分区扫码登录、多账号池、可配置小时上限、限流观测和手动串行采集。
 - RSS/Atom URL 解析、超时重试、采集与统一入库。
 - 三栏看板：信源、文章流、正文详情、未读和归档。
 - Article Markdown、Raw JSON、`sources.json` 与 Node 内置 `node:sqlite` 索引。
@@ -23,7 +23,7 @@ infohub 只做四件事：
 - 外部内容 URL 白名单、DOMPurify、CSP 与 Electron renderer sandbox。
 - Windows NSIS Release 与用户确认式自动更新。
 
-当前版本是 `v0.1.4`。桌面 preload/IPC 桥、核心数据链路、传统“检查—确认—下载—重启”更新流程和公众号二维码登录已就绪；桌面全流程、凭据兜底、错误反馈与探测脚本仍需稳定化，详见 [docs/overview.md](docs/overview.md)。
+当前版本是 `v0.1.5`。桌面 preload/IPC 桥、核心数据链路、传统“检查—确认—下载—重启”更新流程、公众号二维码登录和可配置采集配额已就绪；桌面全流程、凭据兜底、错误反馈与探测脚本仍需稳定化，详见 [docs/overview.md](docs/overview.md)。
 
 ## 开发与验证
 
@@ -60,6 +60,7 @@ projects/infohub/start.sh
 - `articles/`：归一化 Article Markdown，数据真相源。
 - `raw/`：采集原始 JSON，用于溯源与重放。
 - `sources.json`：关注信源。
+- `settings.json`：非敏感本地运行设置。
 - `index.sqlite`：可从 Article 文件完整重建的查询、状态与去重索引。
 - `secrets/`：公众号凭据，禁止外部消费者读取。
 

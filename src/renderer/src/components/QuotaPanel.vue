@@ -1,14 +1,52 @@
 <script setup lang="ts">
 // 账号池 & 配额可视化 —— 监控场景的关键信息，常驻左栏底部。见 docs/wechat-monitor.md#五ux-重点。
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { store } from '../stores/app'
-import { clockTime } from '../util'
+import { clockTime, dateTime } from '../util'
 
 const accounts = computed(() => store.state.accounts)
 const nextRun = computed(() => store.state.progress.nextRunAt)
+const settings = computed(() => store.state.wechatSettings)
+const limitDraft = ref('20')
+const saving = ref(false)
+const saveMessage = ref('')
+const saveError = ref('')
+
+watch(
+  () => settings.value?.hourlyRequestLimit,
+  (value) => {
+    if (value !== undefined) limitDraft.value = String(value)
+  },
+  { immediate: true }
+)
 
 function pct(a: { requestsThisHour: number; hourLimit: number }): number {
   return Math.min(100, Math.round((a.requestsThisHour / a.hourLimit) * 100))
+}
+
+async function saveLimit(): Promise<void> {
+  const current = settings.value
+  if (!current) return
+  saveMessage.value = ''
+  saveError.value = ''
+  const value = Number(limitDraft.value)
+  if (
+    !Number.isInteger(value) ||
+    value < current.minHourlyRequestLimit ||
+    value > current.maxHourlyRequestLimit
+  ) {
+    saveError.value = `请输入 ${current.minHourlyRequestLimit}–${current.maxHourlyRequestLimit} 的整数`
+    return
+  }
+  saving.value = true
+  try {
+    await store.setHourlyRequestLimit(value)
+    saveMessage.value = '已保存，立即生效'
+  } catch (error) {
+    saveError.value = error instanceof Error ? error.message : '保存失败'
+  } finally {
+    saving.value = false
+  }
 }
 </script>
 
@@ -17,6 +55,30 @@ function pct(a: { requestsThisHour: number; hourLimit: number }): number {
     <div class="head">
       <span>账号池 ({{ accounts.length }})</span>
       <span v-if="nextRun" class="dim">下一轮 {{ clockTime(nextRun) }}</span>
+    </div>
+
+    <div v-if="settings" class="limit-setting">
+      <label for="wechat-hour-limit">每账号每小时上限</label>
+      <div class="limit-editor">
+        <input
+          id="wechat-hour-limit"
+          v-model="limitDraft"
+          type="number"
+          :min="settings.minHourlyRequestLimit"
+          :max="settings.maxHourlyRequestLimit"
+          step="1"
+          @keyup.enter="saveLimit"
+        />
+        <button :disabled="saving" @click="saveLimit">{{ saving ? '保存中' : '保存' }}</button>
+      </div>
+      <div
+        class="setting-tip"
+        :class="{ warning: Number(limitDraft) > settings.recommendedMaxHourlyRequestLimit }"
+      >
+        默认 20；超过 {{ settings.recommendedMaxHourlyRequestLimit }} 更容易触发微信风控。
+      </div>
+      <div v-if="saveMessage" class="save-message">{{ saveMessage }}</div>
+      <div v-if="saveError" class="save-error">{{ saveError }}</div>
     </div>
 
     <div v-if="!accounts.length" class="empty">
@@ -31,15 +93,27 @@ function pct(a: { requestsThisHour: number; hourLimit: number }): number {
       <div class="acc-top">
         <span class="name">{{ a.nickname || a.id }}</span>
         <span class="status" :class="a.status">
-          <template v-if="a.status === 'active'">{{ a.requestsThisHour }}/{{ a.hourLimit }}</template>
+          <template v-if="a.status === 'active'">可用</template>
           <template v-else-if="a.status === 'cooldown'">限流至 {{ clockTime(a.cooldownUntil) }}</template>
           <template v-else>登录失效</template>
         </span>
       </div>
-      <div v-if="a.status === 'active'" class="bar">
+      <div class="metrics">
+        <span>本小时 {{ a.requestsThisHour }}/{{ a.hourLimit }}</span>
+        <span>累计 {{ a.totalRequests }}</span>
+      </div>
+      <div v-if="a.status !== 'expired'" class="bar">
         <div class="fill" :style="{ width: pct(a) + '%' }"></div>
       </div>
-      <button v-else-if="a.status === 'expired'" class="relogin" @click="store.relogin(a.id)">
+      <div v-if="a.lastRateLimitedAt" class="limit-record">
+        最近限流：本小时第 {{ a.requestsAtLastRateLimit }} 次
+        <template v-if="a.totalRequestsAtLastRateLimit !== undefined">
+          · 累计第 {{ a.totalRequestsAtLastRateLimit }} 次
+        </template>
+        · {{ dateTime(a.lastRateLimitedAt) }}
+      </div>
+      <div v-else class="observation-empty">测试观测：尚未触发 200013 限流</div>
+      <button v-if="a.status === 'expired'" class="relogin" @click="store.relogin(a.id)">
         重新登录
       </button>
     </div>
@@ -62,6 +136,45 @@ function pct(a: { requestsThisHour: number; hourLimit: number }): number {
   color: var(--text-dim);
   margin-bottom: 8px;
 }
+.limit-setting {
+  padding: 8px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+.limit-setting label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text-secondary);
+}
+.limit-editor {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+}
+.limit-editor input {
+  min-width: 0;
+  padding: 4px 7px;
+}
+.limit-editor button {
+  padding: 4px 9px;
+}
+.setting-tip,
+.save-message,
+.save-error {
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+.setting-tip.warning,
+.save-error {
+  color: var(--warn);
+}
+.save-message {
+  color: var(--ok);
+}
 .dim {
   color: var(--text-dim);
 }
@@ -82,6 +195,13 @@ function pct(a: { requestsThisHour: number; hourLimit: number }): number {
 .acc-top {
   display: flex;
   justify-content: space-between;
+}
+.metrics {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 3px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
 }
 .name {
   font-weight: 500;
@@ -105,6 +225,20 @@ function pct(a: { requestsThisHour: number; hourLimit: number }): number {
 .fill {
   height: 100%;
   background: var(--accent);
+}
+.limit-record {
+  margin-top: 5px;
+  padding: 5px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--cooldown) 10%, transparent);
+  color: var(--cooldown);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.observation-empty {
+  margin-top: 4px;
+  color: var(--text-dim);
+  font-size: 11px;
 }
 .relogin {
   margin-top: 4px;

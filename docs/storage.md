@@ -15,12 +15,15 @@ data/
 ├── raw/<sourceType>/<sourceId>/<encodedExternalId>.json
 ├── index.sqlite
 ├── sources.json
+├── settings.json
 └── secrets/wx-accounts.enc
 ```
 
 仓库 `.gitignore` 已排除根级 `data/`。打包应用使用系统用户数据目录，开发环境通常也落到该目录；不要把真实凭据复制回仓库。
 
 旧版本创建的 `.claude/skills/`、`briefings/` 或 `README.md` 不会被自动删除，但新版本完全忽略它们。
+
+`settings.json` 只保存非敏感运行设置，目前包含 `wechat.hourlyRequestLimit`。它使用临时文件 + rename 更新；文件缺失、损坏或字段越界时回退默认 20。账号 Cookie、token 和限流观测仍在 `secrets/wx-accounts.enc`，不会写入该明文设置文件。
 
 ## 文章文件
 

@@ -19,18 +19,28 @@ import type { DiscoverResult } from '../core/ingest/adapter'
 import { saveAccounts, loadAccounts } from './secrets'
 import { openWechatLogin, makeAccount } from './wechat-login'
 import { ensureDataGuide } from './data-guide'
+import {
+  loadSettings,
+  saveSettings,
+  toWechatCollectionSettings,
+  type InfohubSettings
+} from '../core/settings'
+import { validateWechatHourlyLimit } from '../core/collect/rate-limit'
 
 export class Service {
   private store: Store
   private pool: AccountPool
   private collector: Collector
   private registry: AdapterRegistry
+  private settings: InfohubSettings
   private stopped = false
   private paths = makePaths(join(app.getPath('userData'), 'data'))
 
   constructor() {
     this.store = new Store(this.paths)
+    this.settings = loadSettings(this.paths.settings)
     this.pool = new AccountPool(loadAccounts(this.paths.wxAccounts), {
+      hourLimit: this.settings.wechat.hourlyRequestLimit,
       persist: (a) => saveAccounts(this.paths.wxAccounts, a),
       onChange: () => this.broadcast('accounts-changed')
     })
@@ -135,6 +145,16 @@ export class Service {
       return this.pool.views()
     })
     this.handle(IPC.accountRemove, (id) => this.pool.remove(id as string))
+    this.handle(IPC.accountGetCollectionSettings, () => toWechatCollectionSettings(this.settings))
+    this.handle(IPC.accountSetHourlyRequestLimit, (rawValue) => {
+      const hourlyRequestLimit = validateWechatHourlyLimit(rawValue)
+      const next: InfohubSettings = { wechat: { hourlyRequestLimit } }
+      // 先确保配置成功落盘，再切换内存账号池，避免 UI 与磁盘状态分叉。
+      saveSettings(this.paths.settings, next)
+      this.settings = next
+      this.pool.setHourLimit(hourlyRequestLimit)
+      return toWechatCollectionSettings(this.settings)
+    })
 
     // —— 信源 ——
     this.handle(IPC.sourceList, () => this.store.listSources())

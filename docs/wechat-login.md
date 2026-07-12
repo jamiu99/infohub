@@ -69,22 +69,26 @@ interface WxAccount {
   cooldownUntil?: number;   // 命中限流后的恢复时刻（UTC ms）
   requestsThisHour: number; // 滑动窗口计数
   windowStart: number;
+  totalRequests: number;    // 本机累计认证接口请求数
   lastUsedAt?: number;
+  lastRateLimitedAt?: number;
+  requestsAtLastRateLimit?: number;      // 命中 200013 时，本小时第几次请求
+  totalRequestsAtLastRateLimit?: number; // 命中时，本机累计第几次请求
 }
 ```
 
 - **凭据存储**：OS keychain 可用时用 Electron `safeStorage` 加密；不可用时当前会回退成明文 JSON。文件不入 git，但稳定版前需要告警与迁移机制，详见 [storage.md](storage.md#敏感数据)。
 - **独立分区**：各号 cookie/token 完全隔离，互不覆盖。
-- 账号池文件与正文数据分离，见 [storage.md](storage.md)。
+- 账号池文件与正文数据分离，见 [storage.md](storage.md)。非敏感采集设置单独写入 `data/settings.json`。
 
 ## 四、多账号与限流
 
-代码当前使用刻意压低的保护值（`src/core/collect/rate-limit.ts`）：
+代码默认使用刻意压低的保护值（`src/core/collect/rate-limit.ts`）；用户可以在左栏修改每账号共用的小时保护上限，结果写入 `data/settings.json` 并立即生效：
 
 | 参数 | 值 | 说明 |
 |------|----|----|
 | 频率控制错误码 | `200013` | `base_resp.ret == 200013` 即命中限流 |
-| 每账号每小时 | **20 请求** | 本地 1 小时窗口计数，低于参考实测上限 |
+| 每账号每小时 | **默认 20，可配置 1–1000** | 本地 1 小时窗口计数；超过 50 时看板提示风控风险 |
 | 请求间隔 | **10s** | 同一采集任务翻页之间 sleep |
 | 账号间间隔 | **15s** | 换号重试前的间隔 |
 | 命中后冷却 | 7200s（2h） | 命中 200013 → 该账号 `cooldown` 2 小时 |
@@ -102,6 +106,14 @@ interface WxAccount {
 ```
 
 `earliestRecovery()` 和 `waiting_quota` 契约已经存在，但 Service 尚未把任务持久化或等待到恢复时刻。
+
+### 测试期限流观测
+
+- 看板逐账号显示本小时请求数和本机累计请求数；这里只统计需要账号登录态的 `searchbiz` / `appmsg` 调用，公开文章正文下载不计入账号配额。
+- 每次请求在检查上游结果前先计数，因此命中 `200013` 时记录的是**包含触发请求本身**的准确序号。
+- 最近一次限流会保存“本小时第几次、累计第几次、发生时间”，重启和小时窗口重置后仍保留；小时窗口只清零 `requestsThisHour`。
+- 从旧版本升级时没有历史累计数据，因此 `totalRequests` 以升级当时的本小时计数为起点。
+- 该功能只做被动观测，不自动压测、并发请求或主动撞限流。参考观察值 50 不是微信的稳定承诺，账号、时间和接口状态都可能改变阈值。
 
 ## 五、Cookie 失效检测与扫码引导
 

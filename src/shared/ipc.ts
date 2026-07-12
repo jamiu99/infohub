@@ -2,7 +2,7 @@
 // 单一事实来源，preload 与 renderer 类型都从这里取。
 
 import type { Source, Article, DiscoverResult } from './contract'
-import type { WxAccountView } from './wechat'
+import type { WechatCollectionSettings, WxAccountView } from './wechat'
 
 /** 轮询/采集进度事件（main → renderer 推送） */
 export interface IngestProgress {
@@ -23,6 +23,9 @@ export interface InfohubApi {
     /** 重新登录失效账号（复用其原分区刷新凭证） */
     relogin(accountId: string): Promise<WxAccountView[]>
     remove(accountId: string): Promise<void>
+    getCollectionSettings(): Promise<WechatCollectionSettings>
+    /** 修改所有微信账号共用的本地小时保护上限，保存后立即生效。 */
+    setHourlyRequestLimit(value: number): Promise<WechatCollectionSettings>
   }
   // —— 信源（关注的公众号 / RSS / …）——
   source: {
@@ -69,6 +72,8 @@ export const IPC = {
   accountLogin: 'account:login',
   accountRelogin: 'account:relogin',
   accountRemove: 'account:remove',
+  accountGetCollectionSettings: 'account:getCollectionSettings',
+  accountSetHourlyRequestLimit: 'account:setHourlyRequestLimit',
   sourceList: 'source:list',
   sourceSearch: 'source:search',
   sourceAdd: 'source:add',

@@ -16,3 +16,13 @@ export function clockTime(ts?: number): string {
   if (!ts) return ''
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
+
+export function dateTime(ts?: number): string {
+  if (!ts) return ''
+  return new Date(ts).toLocaleString([], {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}

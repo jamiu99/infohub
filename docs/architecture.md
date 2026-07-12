@@ -59,7 +59,7 @@ SourceAdapter.fetch() ──▶ RawItem
 src/
 ├── main/
 │   ├── index.ts             # App/主窗口入口
-│   ├── service.ts           # 依赖装配与 IPC handler
+│   ├── service.ts           # 运行设置、依赖装配与 IPC handler
 │   ├── data-guide.ts        # 生成 INFOHUB_DATA.md
 │   ├── wechat-login.ts      # 扫码 BrowserWindow
 │   ├── secrets.ts           # safeStorage 凭据持久化
@@ -74,6 +74,7 @@ src/
 │   └── url.ts               # http(s) URL 白名单
 └── core/
     ├── collect/             # Collector、账号池、限流
+    ├── settings.ts          # 非敏感运行设置与原子持久化
     ├── ingest/              # Adapter、微信、RSS、网络容错
     ├── process/             # normalizer、正文提取/转换
     ├── store/               # Markdown 与 SQLite

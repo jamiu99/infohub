@@ -103,14 +103,25 @@ function createWindow(): void {
       void win.webContents
         .executeJavaScript(`(async () => {
           if (!window.api || typeof window.api.account?.list !== 'function') return false;
+          if (typeof window.api.account?.getCollectionSettings !== 'function') return false;
+          if (typeof window.api.account?.setHourlyRequestLimit !== 'function') return false;
           const accounts = await window.api.account.list();
-          return Array.isArray(accounts);
+          const initial = await window.api.account.getCollectionSettings();
+          const updated = await window.api.account.setHourlyRequestLimit(23);
+          const reread = await window.api.account.getCollectionSettings();
+          return Array.isArray(accounts)
+            && initial?.hourlyRequestLimit === 20
+            && updated?.hourlyRequestLimit === 23
+            && reread?.hourlyRequestLimit === 23;
         })()`)
         .then((ok) => {
           clearTimeout(timer)
           const menuReady = Boolean(Menu.getApplicationMenu()?.getMenuItemById('check-for-updates'))
           const passed = ok === true && menuReady
-          finish(passed, passed ? 'preload + IPC + update menu' : 'bridge or update menu missing')
+          finish(
+            passed,
+            passed ? 'preload + account/settings IPC + update menu' : 'bridge or update menu missing'
+          )
         })
         .catch((error: Error) => {
           clearTimeout(timer)

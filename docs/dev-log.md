@@ -2,7 +2,7 @@
 
 > 上级：[overview.md](overview.md) · 数据接口：[data-interface.md](data-interface.md)
 
-最后更新：2026-07-11，基于提交 `99ed81f` 的未提交接手改动。
+最后更新：2026-07-13，基于 `v0.1.4` 发布基线的采集配额观测改动。
 
 ## 代码地图
 
@@ -14,6 +14,7 @@
 | 数据目录说明 | `src/main/data-guide.ts` |
 | 微信扫码/凭据 | `src/main/wechat-login.ts`、`secrets.ts` |
 | 采集编排/账号/限流 | `src/core/collect/collector.ts`、`account-pool.ts`、`rate-limit.ts` |
+| 非敏感运行设置 | `src/core/settings.ts`、`data/settings.json` |
 | Adapter | `src/core/ingest/adapter.ts`、`wechat-adapter.ts`、`rss-adapter.ts` |
 | 微信/RSS 协议 | `src/core/ingest/wechat.ts`、`rss.ts`、`net.ts` |
 | 归一化/正文 | `src/core/process/normalize.ts`、`wechat.ts`、`rss.ts`、`content.ts` |
@@ -30,18 +31,19 @@
 | 命令 | 结果 |
 |------|------|
 | `pnpm typecheck` | ✅ main/preload/core/shared + renderer 通过 |
-| `pnpm test:core` | ✅ 42/42，0 fail |
+| `pnpm test:core` | ✅ 49/49，0 fail |
 | `pnpm build` | ✅ main/preload/renderer 生产构建通过 |
 | `pnpm verify:bundle` | ✅ sandbox preload 为单文件 CJS，主窗口路径一致 |
-| `pnpm smoke:desktop` | ✅ 真实 Electron 中 `window.api.account.list()` 调用通过 |
+| `pnpm smoke:desktop` | ✅ 真实 Electron 中账号列表、设置读写 IPC 与更新菜单通过 |
 | `pnpm audit --prod` | ✅ 未发现已知生产依赖漏洞 |
 | Markdown 链接 / `git diff --check` | ✅ |
 | GitHub Release workflow | ✅，Windows 打包前校验版本并重跑完整门禁 |
 | `./verify.sh` | ✅，本地与 `main`/PR CI 共用 |
 
-42 项测试分布：
+49 项测试分布：
 
-- 账号池与配额：8。
+- 账号池、可配置配额与限流观测：12。
+- 设置文件加载、原子保存与边界校验：3。
 - Collector 串行锁与未知 adapter：2。
 - 公众号正文提取与 HTML → Markdown：5。
 - renderer Markdown 与危险 URL/HTML：4。
@@ -114,7 +116,7 @@ sudo apt-get install -y libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libgbm1 
 1. 后台采集错误和 quota waiting 缺明确前端反馈。
 2. safeStorage 不可用时静默明文，缺格式版本、告警与迁移。
 3. 普通 push/PR 与 Release 已有门禁，但 GitHub 分支保护规则尚未核验。
-4. sandbox preload 已做 Linux Electron smoke test；CSP 图片、`v0.1.4` 二维码、原生更新对话框和系统外链仍需真实 Windows 点击验收。
+4. sandbox preload 已做 Linux Electron smoke test；CSP 图片、`v0.1.5` 二维码、配额界面、原生更新对话框和系统外链仍需真实 Windows 点击验收。
 5. 两个 probe 脚本失效，尚未纳入 `verify.sh`。
 
 ## 仍需补的测试

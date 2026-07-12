@@ -7,6 +7,7 @@ export interface Paths {
   raw: string // data/raw/
   index: string // data/index.sqlite
   sources: string // data/sources.json
+  settings: string // data/settings.json（非敏感运行设置）
   secrets: string // data/secrets/
   wxAccounts: string // data/secrets/wx-accounts.enc
   guide: string // data/INFOHUB_DATA.md（机器/人工可读的数据接口说明）
@@ -19,6 +20,7 @@ export function makePaths(dataRoot: string): Paths {
     raw: join(dataRoot, 'raw'),
     index: join(dataRoot, 'index.sqlite'),
     sources: join(dataRoot, 'sources.json'),
+    settings: join(dataRoot, 'settings.json'),
     secrets: join(dataRoot, 'secrets'),
     wxAccounts: join(dataRoot, 'secrets', 'wx-accounts.enc'),
     guide: join(dataRoot, 'INFOHUB_DATA.md')
