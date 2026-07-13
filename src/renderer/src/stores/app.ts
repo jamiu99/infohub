@@ -3,6 +3,7 @@ import { reactive, readonly } from 'vue'
 import type { Source, Article, DiscoverResult } from '../../../shared/contract'
 import type { WechatCollectionSettings, WxAccountView } from '../../../shared/wechat'
 import type { InfohubApi, IngestProgress, UpdateStatus } from '../../../shared/ipc'
+import { userFacingError } from '../../../shared/errors'
 
 type TeamStatus = Awaited<ReturnType<InfohubApi['team']['status']>>
 type TeamJoinInput = Parameters<InfohubApi['team']['join']>[0]
@@ -64,7 +65,7 @@ export const store = {
     api.on('team-status', (status) => {
       state.team = status
       state.teamLoading = false
-      state.teamError = status.error ?? ''
+      state.teamError = status.error ? userFacingError(status.error, '团队同步异常') : ''
       if (!status.device && state.articleScope === 'team') {
         state.articleScope = 'mine'
         state.selectedArticle = null
@@ -110,7 +111,7 @@ export const store = {
     } catch (error) {
       if (requestId === articleRequestId) {
         state.articles = []
-        state.articlesError = error instanceof Error ? error.message : '文章加载失败'
+        state.articlesError = userFacingError(error, '文章加载失败')
       }
     } finally {
       if (requestId === articleRequestId) state.articlesLoading = false
@@ -122,9 +123,11 @@ export const store = {
     state.teamError = ''
     try {
       state.team = await api.team.status()
-      state.teamError = state.team.error ?? ''
+      state.teamError = state.team.error
+        ? userFacingError(state.team.error, '无法读取团队状态')
+        : ''
     } catch (error) {
-      state.teamError = error instanceof Error ? error.message : '无法读取团队状态'
+      state.teamError = userFacingError(error, '无法读取团队状态')
     } finally {
       state.teamLoading = false
     }
@@ -183,12 +186,12 @@ export const store = {
     state.teamError = ''
     try {
       state.team = await api.team.join(input)
-      state.teamError = state.team.error ?? ''
+      state.teamError = state.team.error ? userFacingError(state.team.error, '加入团队失败') : ''
       if (!state.team.device) throw new Error(state.teamError || '加入团队失败')
       await this.refreshAll()
     } catch (error) {
-      state.teamError = error instanceof Error ? error.message : '加入团队失败'
-      throw error
+      state.teamError = userFacingError(error, '加入团队失败')
+      throw new Error(state.teamError)
     } finally {
       state.teamLoading = false
     }
@@ -199,12 +202,12 @@ export const store = {
     state.teamError = ''
     try {
       state.team = await api.team.syncNow()
-      state.teamError = state.team.error ?? ''
+      state.teamError = state.team.error ? userFacingError(state.team.error, '团队同步失败') : ''
       if (state.team.state === 'error') throw new Error(state.teamError || '同步失败')
       await this.refreshAll()
     } catch (error) {
-      state.teamError = error instanceof Error ? error.message : '同步失败'
-      throw error
+      state.teamError = userFacingError(error, '团队同步失败')
+      throw new Error(state.teamError)
     } finally {
       state.teamLoading = false
     }
@@ -219,8 +222,8 @@ export const store = {
       state.selectedArticle = null
       await this.refreshAll()
     } catch (error) {
-      state.teamError = error instanceof Error ? error.message : '退出团队失败'
-      throw error
+      state.teamError = userFacingError(error, '退出团队失败')
+      throw new Error(state.teamError)
     } finally {
       state.teamLoading = false
     }

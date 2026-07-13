@@ -1,4 +1,5 @@
 import type { UpdateStatus } from '../shared/ipc'
+import { userFacingError } from '../shared/errors'
 
 export interface UpdatePort {
   check(): Promise<void>
@@ -90,7 +91,7 @@ export class UpdateController {
   }
 
   async failed(error: unknown): Promise<void> {
-    const message = error instanceof Error ? error.message : String(error)
+    const message = userFacingError(error, '检查更新失败')
     if (!this.checking && !this.downloading && this.lastFailure === message) return
     const notify = this.interactiveCheck || this.downloading
     this.checking = false

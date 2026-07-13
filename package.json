@@ -1,6 +1,6 @@
 {
   "name": "infohub",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "本地信息采集与索引看板 — 微信公众号/RSS",
   "main": "out/main/index.js",
   "author": "jamiu",

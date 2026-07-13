@@ -3,6 +3,7 @@
 import { ref, computed } from 'vue'
 import { store } from '../stores/app'
 import type { DiscoverResult } from '../../../shared/contract'
+import { userFacingError } from '../../../shared/errors'
 
 const emit = defineEmits<{ close: [] }>()
 const type = ref<'wechat' | 'rss'>('wechat')
@@ -10,6 +11,7 @@ const query = ref('')
 const results = ref<DiscoverResult[]>([])
 const searching = ref(false)
 const adding = ref(-1)
+const errorMessage = ref('')
 
 const placeholder = computed(() =>
   type.value === 'wechat' ? '输入公众号名称（可粘贴）' : '粘贴 RSS/Atom 订阅地址（http…）'
@@ -18,9 +20,13 @@ const needAccount = computed(() => type.value === 'wechat' && !store.state.accou
 
 async function doSearch(): Promise<void> {
   if (!query.value.trim()) return
+  errorMessage.value = ''
   searching.value = true
   try {
     results.value = await store.search(type.value, query.value.trim())
+  } catch (error) {
+    results.value = []
+    errorMessage.value = userFacingError(error, type.value === 'wechat' ? '搜索公众号失败' : '解析 RSS 失败')
   } finally {
     searching.value = false
   }
@@ -30,13 +36,17 @@ function switchType(t: 'wechat' | 'rss'): void {
   type.value = t
   results.value = []
   query.value = ''
+  errorMessage.value = ''
 }
 
 async function add(r: DiscoverResult, i: number): Promise<void> {
   adding.value = i
+  errorMessage.value = ''
   try {
     await store.addSource(type.value, r)
     emit('close')
+  } catch (error) {
+    errorMessage.value = userFacingError(error, '添加信源失败')
   } finally {
     adding.value = -1
   }
@@ -58,6 +68,7 @@ async function add(r: DiscoverResult, i: number): Promise<void> {
         </button>
       </div>
       <p v-if="needAccount" class="hint">需先登录一个账号才能搜索公众号。</p>
+      <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
       <ul class="results">
         <li v-for="(r, i) in results" :key="i">
           <img v-if="r.meta?.roundHeadImg" :src="(r.meta.roundHeadImg as string)" class="avatar" />
@@ -120,6 +131,15 @@ h3 {
 .hint {
   color: var(--warn);
   font-size: 12px;
+}
+.error-message {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warn) 9%, transparent);
+  color: var(--warn);
+  font-size: 12px;
+  line-height: 1.5;
 }
 .results {
   list-style: none;

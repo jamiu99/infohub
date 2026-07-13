@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { Article, Source } from '../../shared/contract'
+import { userFacingError } from '../../shared/errors'
 import {
   toTeamArticlePayload,
   toTeamSourcePayload,
@@ -219,7 +220,7 @@ export class TeamSyncClient {
       this.lastSyncAt = this.now()
       this.lastError = undefined
     } catch (error) {
-      this.lastError = error instanceof Error ? error.message : String(error)
+      this.lastError = userFacingError(error, '团队同步失败')
     }
   }
 

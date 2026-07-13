@@ -6,8 +6,8 @@
 
 2026-07-13 的发布基线：
 
-- 当前源码版本为 `v0.2.0`，发布说明见 [releases/v0.2.0.md](releases/v0.2.0.md)。
-- 上个正式 GitHub Release 是 `v0.1.5`；`v0.1.2` 因 preload 回归已取消并转为 draft。
+- 当前源码版本为 `v0.2.1`，发布说明见 [releases/v0.2.1.md](releases/v0.2.1.md)。
+- 上个正式 GitHub Release 是 `v0.2.0`；`v0.1.2` 因 preload 回归已取消并转为 draft。
 - Release workflow 已在 `v0.1.1` 补齐版本校验、typecheck 和核心测试。
 - 尚无 Windows 安装人工验收或跨版本自动更新验收记录，不能把“存在更新代码”表述为“升级闭环已验收”。
 
@@ -53,7 +53,7 @@ Release notes 必须明确数据格式变化、迁移方式与已知限制；如
 
 ## App 内自动更新
 
-`src/main/updater.ts` 在打包环境启动 5 秒后检查更新，也可从“帮助 → 检查更新”或左栏按钮手动触发：
+`src/main/updater.ts` 在打包环境启动 5 秒后检查更新，也可从“帮助 → 检查更新”或“设置 → 软件更新”手动触发：
 
 - 有新版时先用 main 原生对话框询问是否下载，不未经确认消耗流量。
 - 确认后下载；renderer 提示条和 Windows 任务栏显示进度。

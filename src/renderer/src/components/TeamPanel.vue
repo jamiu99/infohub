@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { store } from '../stores/app'
 import { dateTime } from '../util'
 import { DEFAULT_TEAM_SERVER_URL } from '../../../shared/team'
+import { userFacingError } from '../../../shared/errors'
 
 const showJoin = ref(false)
 const serverUrl = ref(DEFAULT_TEAM_SERVER_URL)
@@ -16,6 +17,10 @@ const status = computed(() => store.state.team)
 const joined = computed(() => Boolean(status.value?.device))
 const busy = computed(
   () => store.state.teamLoading || status.value?.state === 'syncing'
+)
+const statusError = computed(() =>
+  store.state.teamError ||
+  (status.value?.error ? userFacingError(status.value.error, '团队同步异常') : '')
 )
 
 watch(
@@ -92,7 +97,7 @@ async function join(): Promise<void> {
     showJoin.value = false
     actionMessage.value = '已加入团队'
   } catch (error) {
-    actionError.value = error instanceof Error ? error.message : '加入团队失败'
+    actionError.value = userFacingError(error, '加入团队失败')
   } finally {
     // TEAM_TOKEN 只用于本次入组请求，不在 renderer 状态中继续保留。
     teamToken.value = ''
@@ -105,7 +110,7 @@ async function syncNow(): Promise<void> {
     await store.syncTeam()
     actionMessage.value = '同步完成'
   } catch (error) {
-    actionError.value = error instanceof Error ? error.message : '同步失败'
+    actionError.value = userFacingError(error, '团队同步失败')
   }
 }
 
@@ -119,7 +124,7 @@ async function leave(): Promise<void> {
     await store.leaveTeam()
     actionMessage.value = '已退出团队'
   } catch (error) {
-    actionError.value = error instanceof Error ? error.message : '退出团队失败'
+    actionError.value = userFacingError(error, '退出团队失败')
   }
 }
 </script>
@@ -127,12 +132,13 @@ async function leave(): Promise<void> {
 <template>
   <section class="team-panel">
     <div class="heading">
-      <span>团队</span>
+      <span>连接状态</span>
       <span v-if="joined" class="state" :class="status?.state">
         <template v-if="status?.state === 'syncing'">同步中</template>
         <template v-else-if="status?.state === 'error'">异常</template>
         <template v-else>已连接</template>
       </span>
+      <span v-else class="state not-joined">未加入</span>
     </div>
 
     <div v-if="store.state.teamLoading && !status" class="placeholder">正在读取团队状态…</div>
@@ -149,9 +155,7 @@ async function leave(): Promise<void> {
         <span v-if="status.lastSyncAt">上次 {{ dateTime(status.lastSyncAt) }}</span>
         <span v-else>尚未同步</span>
       </div>
-      <div v-if="status.error || store.state.teamError" class="error">
-        {{ status.error || store.state.teamError }}
-      </div>
+      <div v-if="statusError" class="error">{{ statusError }}</div>
       <div class="actions">
         <button class="primary" :disabled="busy" @click="syncNow">
           {{ busy ? '同步中…' : '立即同步' }}
@@ -225,8 +229,10 @@ async function leave(): Promise<void> {
 
 <style scoped>
 .team-panel {
-  border-top: 1px solid var(--border);
-  padding: 10px 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
   font-size: 12px;
 }
 .heading,
@@ -250,6 +256,9 @@ async function leave(): Promise<void> {
 .state.error,
 .error {
   color: var(--warn);
+}
+.state.not-joined {
+  color: var(--text-dim);
 }
 .placeholder,
 .intro,

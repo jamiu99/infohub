@@ -2,7 +2,7 @@
 
 > 上级：[overview.md](overview.md) · 数据接口：[data-interface.md](data-interface.md)
 
-最后更新：2026-07-13，`v0.2.0` 团队共享 MVP。
+最后更新：2026-07-13，`v0.2.1` 阅读界面整理。
 
 ## 代码地图
 
@@ -21,7 +21,7 @@
 | 文件/SQLite | `src/core/store/index.ts`、`markdown.ts`、`src/core/paths.ts` |
 | 团队同步 | `src/core/team/sync-client.ts`、`sync-storage.ts`、`apply-remote.ts` |
 | preload | `src/preload/index.ts` |
-| Vue 看板 | `src/renderer/src/stores/app.ts`、`components/*.vue`、`styles/main.css` |
+| Vue 看板 | `src/renderer/src/stores/app.ts`、`layout.ts`、`components/*.vue`、`styles/main.css` |
 | 内容安全 | `src/renderer/src/markdown.ts`、`src/renderer/index.html` |
 | 更新/发布 | `src/main/update-controller.ts`、`src/main/updater.ts`、`electron-builder.yml`、`.github/workflows/release.yml` |
 
@@ -32,7 +32,7 @@
 | 命令 | 结果 |
 |------|------|
 | `pnpm typecheck` | ✅ main/preload/core/shared + renderer 通过 |
-| `pnpm test:core` | ✅ 58/58，0 fail |
+| `pnpm test:core` | ✅ 63/63，0 fail |
 | `pnpm build` | ✅ main/preload/renderer 生产构建通过 |
 | `pnpm verify:bundle` | ✅ sandbox preload 为单文件 CJS，主窗口路径一致 |
 | `pnpm smoke:desktop` | ✅ 真实 Electron 中账号列表、设置读写 IPC 与更新菜单通过 |
@@ -41,7 +41,7 @@
 | GitHub Release workflow | ✅，Windows 打包前校验版本并重跑完整门禁 |
 | `./verify.sh` | ✅，本地与 `main`/PR CI 共用 |
 
-58 项测试分布：
+63 项测试分布：
 
 - 账号池、可配置配额与限流观测：12。
 - 设置文件加载、原子保存与边界校验：3。
@@ -54,6 +54,15 @@
 - 微信登录 URL 白名单与传统二维码切换：2。
 - 用户确认式更新状态机：5。
 - 团队 HTTPS、outbox/ack/隔离、入组/同步、范围重建、RSS 来源映射、取消订阅和贡献翻转：9。
+- 用户可见异常中文转换与三栏布局归一化/拖动边界：5。
+
+## 桌面阅读界面整理（2026-07-13）
+
+- 主界面顶部增加轻量全局工具栏；信源、文章、正文三栏可独立隐藏并从工具栏恢复。
+- 相邻栏分隔线支持指针拖动、方向键微调和双击恢复，显隐与宽度保存到 renderer `localStorage`；不涉及业务数据或凭据。
+- 左栏只保留信源和“添加信源”，账号配额、团队连接、界面恢复和软件更新迁入独立设置弹窗。
+- 文章栏 header 固定为不可收缩区域，长信源名省略显示，“我的 / 团队”切换不会再被文章列表覆盖。
+- `shared/errors.ts` 统一把超时、网络、DNS、证书和常见 HTTP 异常转换为中文；main 更新流程、团队同步及 renderer 操作共用。
 
 ## 团队共享实现（2026-07-13）
 
@@ -64,7 +73,7 @@
 - 超限/非法事件和服务端永久 4xx 会单独隔离，不再阻塞其余文章；侧栏显示隔离数量。
 - pull 合并保留本机阅读/归档、较完整正文与兼容注释，团队来源信息写回 Article 文件。
 - 取消订阅保留已有团队副本；私有 RSS 凭据参数不上传，纯团队正文可接收服务端后续更新。
-- 看板新增团队状态、立即同步、退出和“我的 / 团队”范围。
+- 设置弹窗提供团队状态、立即同步和退出；主文章栏保留“我的 / 团队”阅读范围。
 - assignment/rebalance/lease 已在服务端实现；桌面任务分配 UI 和租约采集尚未接入。
 
 ## 产品边界清理（2026-07-11）
@@ -130,9 +139,9 @@ sudo apt-get install -y libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libgbm1 
 1. 后台采集错误和 quota waiting 缺明确前端反馈。
 2. 微信账号池在 safeStorage 不可用时仍静默明文，缺格式版本、告警与迁移；团队设备 token 已改为拒绝明文保存。
 3. 普通 push/PR 与 Release 已有门禁，但 GitHub 分支保护规则尚未核验。
-4. sandbox preload 已做 Linux Electron smoke test；CSP 图片、`v0.2.0` 二维码、配额/团队界面、原生更新对话框和系统外链仍需真实 Windows 点击验收。
+4. sandbox preload 已做 Linux Electron smoke test；CSP 图片、`v0.2.1` 二维码、配额/团队界面、三栏拖动、原生更新对话框和系统外链仍需真实 Windows 点击验收。
 5. 两个 probe 脚本失效，尚未纳入 `verify.sh`。
-6. 默认团队 HTTPS 服务未部署验收；两设备历史补传、断网恢复和 contribution 合并仍需真实环境验证。
+6. 默认团队 HTTPS `/healthz` 已验证可用，但进程守护/备份/外部监控和两设备历史补传、断网恢复、contribution 合并仍需真实环境验证。
 
 ## 仍需补的测试
 

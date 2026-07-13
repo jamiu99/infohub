@@ -25,7 +25,7 @@ function refresh(): void {
   <div class="wrap">
     <header>
       <div class="title-row">
-        <h2>{{ title }}</h2>
+        <h2 :title="title">{{ title }}</h2>
         <button :disabled="busy" class="refresh" @click="refresh">
           {{ busy ? '采集中…' : '⟳ 刷新' }}
         </button>
@@ -105,33 +105,46 @@ function refresh(): void {
   height: 100%;
 }
 header {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   min-height: 52px;
+  background: var(--bg);
 }
 .title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
   width: 100%;
 }
 h2 {
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
   font-size: 14px;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tools {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
   width: 100%;
 }
 .scope-tabs {
   display: inline-flex;
+  flex: 0 0 auto;
   padding: 2px;
   border-radius: var(--radius-sm);
   background: var(--bg-subtle);
@@ -143,6 +156,7 @@ h2 {
   background: transparent;
   color: var(--text-dim);
   box-shadow: none;
+  white-space: nowrap;
 }
 .scope-tabs button.active {
   background: var(--bg-elevated);
@@ -156,6 +170,7 @@ h2 {
   padding: 4px 9px;
 }
 select {
+  flex: 0 0 auto;
   width: auto;
   padding: 5px 8px;
 }
@@ -167,6 +182,8 @@ select {
   border-bottom: 1px solid var(--border);
 }
 .list {
+  flex: 1 1 auto;
+  min-height: 0;
   list-style: none;
   margin: 0;
   padding: 0;

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-// 账号池 & 配额可视化 —— 监控场景的关键信息，常驻左栏底部。见 docs/wechat-monitor.md#五ux-重点。
+// 账号池 & 配额可视化 —— 集中放在设置弹窗，避免挤占日常阅读界面。
 import { computed, ref, watch } from 'vue'
 import { store } from '../stores/app'
 import { clockTime, dateTime } from '../util'
+import { userFacingError } from '../../../shared/errors'
 
 const accounts = computed(() => store.state.accounts)
 const nextRun = computed(() => store.state.progress.nextRunAt)
@@ -11,6 +12,8 @@ const limitDraft = ref('20')
 const saving = ref(false)
 const saveMessage = ref('')
 const saveError = ref('')
+const accountAction = ref<string | null>(null)
+const accountError = ref('')
 
 watch(
   () => settings.value?.hourlyRequestLimit,
@@ -43,9 +46,33 @@ async function saveLimit(): Promise<void> {
     await store.setHourlyRequestLimit(value)
     saveMessage.value = '已保存，立即生效'
   } catch (error) {
-    saveError.value = error instanceof Error ? error.message : '保存失败'
+    saveError.value = userFacingError(error, '保存采集上限失败')
   } finally {
     saving.value = false
+  }
+}
+
+async function login(): Promise<void> {
+  accountError.value = ''
+  accountAction.value = 'login'
+  try {
+    await store.login()
+  } catch (error) {
+    accountError.value = userFacingError(error, '打开扫码登录失败')
+  } finally {
+    accountAction.value = null
+  }
+}
+
+async function relogin(id: string): Promise<void> {
+  accountError.value = ''
+  accountAction.value = id
+  try {
+    await store.relogin(id)
+  } catch (error) {
+    accountError.value = userFacingError(error, '重新登录失败')
+  } finally {
+    accountAction.value = null
   }
 }
 </script>
@@ -83,7 +110,9 @@ async function saveLimit(): Promise<void> {
 
     <div v-if="!accounts.length" class="empty">
       未登录账号<br />
-      <button class="primary" @click="store.login()">扫码登录</button>
+      <button class="primary" :disabled="accountAction !== null" @click="login">
+        {{ accountAction === 'login' ? '正在打开…' : '扫码登录' }}
+      </button>
       <div class="tip">
         仅使用手机微信扫描官方二维码，请勿在弹窗输入账号、密码或验证码。登录态只保存在本机。
       </div>
@@ -113,21 +142,26 @@ async function saveLimit(): Promise<void> {
         · {{ dateTime(a.lastRateLimitedAt) }}
       </div>
       <div v-else class="observation-empty">测试观测：尚未触发 200013 限流</div>
-      <button v-if="a.status === 'expired'" class="relogin" @click="store.relogin(a.id)">
-        重新登录
+      <button
+        v-if="a.status === 'expired'"
+        class="relogin"
+        :disabled="accountAction !== null"
+        @click="relogin(a.id)"
+      >
+        {{ accountAction === a.id ? '正在打开…' : '重新登录' }}
       </button>
     </div>
 
-    <button v-if="accounts.length" class="add" @click="store.login()">
-      + 登录一个号（提升采集上限）
+    <div v-if="accountError" class="account-error">{{ accountError }}</div>
+    <button v-if="accounts.length" class="add" :disabled="accountAction !== null" @click="login">
+      {{ accountAction === 'login' ? '正在打开扫码窗口…' : '+ 登录一个号（提升采集上限）' }}
     </button>
   </div>
 </template>
 
 <style scoped>
 .quota {
-  border-top: 1px solid var(--border);
-  padding: 10px;
+  padding: 0;
   font-size: 12px;
 }
 .head {
@@ -169,7 +203,8 @@ async function saveLimit(): Promise<void> {
   color: var(--text-dim);
 }
 .setting-tip.warning,
-.save-error {
+.save-error,
+.account-error {
   color: var(--warn);
 }
 .save-message {
@@ -250,5 +285,12 @@ async function saveLimit(): Promise<void> {
   width: 100%;
   margin-top: 4px;
   color: var(--text-dim);
+}
+.account-error {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warn) 9%, transparent);
+  line-height: 1.5;
 }
 </style>
