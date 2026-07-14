@@ -5,12 +5,13 @@ import type { SourceAdapter, DiscoverResult, FetchOutcome } from './adapter'
 import type { AccountPool } from '../collect/account-pool'
 import { RATE_LIMIT } from '../collect/rate-limit'
 import { searchBiz, listArticlesPage, toRawItem } from './wechat'
-import { fetchArticleBody } from '../process/content'
+import { fetchArticleContent, WECHAT_CONTENT_PARSER_VERSION } from '../process/content'
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 export class WechatAdapter implements SourceAdapter {
   readonly type = 'wechat'
+  readonly contentParserVersion = WECHAT_CONTENT_PARSER_VERSION
 
   private wait: (ms: number) => Promise<void>
   constructor(
@@ -26,9 +27,9 @@ export class WechatAdapter implements SourceAdapter {
       : { ready: false, reason: '无可用账号（未登录或全部限流/失效）' }
   }
 
-  /** 公众号列表只给摘要，正文需抓原文页转 markdown */
-  enrichBody(sourceUrl: string): Promise<string | null> {
-    return fetchArticleBody(sourceUrl)
+  /** 公众号列表只给摘要；详情页同时保留 page HTML、正文 HTML 和 Markdown。 */
+  enrichContent(sourceUrl: string) {
+    return fetchArticleContent(sourceUrl)
   }
 
   /** 搜公众号（换号重试） */

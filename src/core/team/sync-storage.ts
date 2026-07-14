@@ -9,7 +9,10 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import type { Paths } from '../paths'
-import type { TeamArticleUpload } from '../../shared/team'
+import {
+  TEAM_PUSH_BODY_BUDGET_BYTES,
+  type TeamArticleUpload
+} from '../../shared/team'
 import { teamUploadValidationError } from './sync-validation'
 
 function eventFileName(eventId: string): string {
@@ -63,11 +66,11 @@ export class TeamSyncStorage {
     rmSync(join(this.paths.teamOutbox, eventFileName(item.eventId)), { force: true })
   }
 
-  readBatch(limit = 100, maxBytes = 6 * 1024 * 1024): TeamArticleUpload[] {
+  readBatch(maxBytes = TEAM_PUSH_BODY_BUDGET_BYTES): TeamArticleUpload[] {
     const result: TeamArticleUpload[] = []
-    let bytes = Buffer.byteLength('{"items":[]}')
+    // 与 sync-client 实际发送的 JSON.stringify({ items }) 包络完全一致。
+    let bytes = Buffer.byteLength(JSON.stringify({ items: [] }), 'utf8')
     for (const file of this.outboxFiles()) {
-      if (result.length >= limit) break
       const path = join(this.paths.teamOutbox, file)
       try {
         const parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown
@@ -81,9 +84,9 @@ export class TeamSyncStorage {
           rmSync(path, { force: true })
           continue
         }
-        const itemBytes = Buffer.byteLength(JSON.stringify(item)) + (result.length > 0 ? 1 : 0)
+        const itemBytes = Buffer.byteLength(JSON.stringify(item), 'utf8') + (result.length > 0 ? 1 : 0)
         if (result.length > 0 && bytes + itemBytes > maxBytes) break
-        // 首项即使超过建议批次大小也单独返回，让服务端给出明确的单文章尺寸错误。
+        // 首项即使因 JSON 转义膨胀而超过批次预算也单独返回，保证队列至少前进一项。
         result.push(item)
         bytes += itemBytes
       } catch {

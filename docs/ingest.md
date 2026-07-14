@@ -1,6 +1,6 @@
 # 采集层（ingest）
 
-> 上级：[overview.md](overview.md) · 契约见 [contract.md](contract.md) · 公众号登录见 [wechat-login.md](wechat-login.md)
+> 上级：[overview.md](overview.md) · 契约见 [contract.md](contract.md) · 公众号登录见 [wechat-login.md](wechat-login.md) · 公众号正文见 [wechat-content.md](wechat-content.md)
 
 职责：从各信源拿到**原始数据**，产出 `RawItem[]`。**只负责取，不清洗、不入正式库**。
 
@@ -14,7 +14,15 @@ interface SourceAdapter {
   discover?(query: string): Promise<DiscoverResult[]>       // 搜索/试探信源
   fetch(source: Source, opts?: { maxPages?: number }): Promise<FetchOutcome>  // 拉原始条目
   readiness?(): { ready: boolean; reason?: string }         // 采集前就绪检查（如 wechat 无账号）
-  enrichBody?(sourceUrl: string): Promise<string | null>    // 可选：补正文（wechat 抓原文页）
+  contentParserVersion?: number
+  enrichContent?(sourceUrl: string): Promise<{
+    body: string                    // Markdown 阅读投影
+    contentHtml?: string            // 可直接展示的正文 HTML
+    pageHtml?: string               // 未改写的完整页面
+    status: 'complete' | 'partial' | 'failed'
+    parserVersion: number
+    error?: { code: string; message: string }
+  }>
 }
 ```
 
@@ -23,7 +31,7 @@ interface SourceAdapter {
 - `RssAdapter` 公开抓取、无鉴权（`src/core/ingest/rss-adapter.ts`）。
 
 `Collector`（`src/core/collect/collector.ts`）只面向此接口：`AdapterRegistry.get(type)` 取 adapter →
-`fetch` → 去重 → `getNormalizer(type)` 归一化 → `enrichBody` 补正文 → 存库。全局串行锁保护。
+`fetch` → 条目去重 → `getNormalizer(type)` 归一化 → `enrichContent` 补正文/页面产物 → 存库。全局串行锁保护。正文补全只有结构化 `enrichContent` 一条路径，不保留旧 adapter 分支。
 
 归一化按 type 注册（`src/core/process/normalize.ts`）：`normalizeWechat` / `normalizeRss` 各自 `registerNormalizer`。
 
@@ -64,12 +72,21 @@ cookie: <账号 cookie>
 
 当前默认只拉 1 页 × 10 条；不做定时轮询。搜索与采集都经过 Collector 全局串行锁，实际保护参数见 [wechat-login.md](wechat-login.md#四多账号与限流)。
 
+文章列表接口只提供摘要和原文链接；详情页正文属于 `enrichContent` 阶段。当前经典图文页已用 `parse5` 构建 HTML 树并定位 `#js_content`，同时返回：
+
+- Markdown `body`；
+- 保留外层正文节点/内联样式、提升 `data-src` 并补全相对 URL 的 `contentHtml`；
+- 未改写的完整 `pageHtml`；
+- `status/parserVersion/error` 生命周期信息。
+
+公开文章详情不携带公众号后台 Cookie。新版/旧版 SSR 图片页和依赖页面脚本的动态内容还没有专用解析路径，页面形态、内容类型和后续顺序记录在 [wechat-content.md](wechat-content.md)。
+
 ## RSS（已实现）
 
 标准 RSS/Atom：给定 `feedUrl`，拉取解析每个 entry → `RawItem`（`externalId = guid || link`，`raw = entry`）。
 - 解析：`src/core/ingest/rss.ts`（无三方依赖，正则解析 RSS `<item>` 与 Atom `<entry>`，含 CDATA/实体解码）。
 - adapter：`src/core/ingest/rss-adapter.ts`。`discover(url)` = 试探一个 feed URL 返回站点作候选（不接受非 URL）。
-- 归一化：`normalizeRss` 用 entry 的 `content:encoded`/`content`/`summary` 作正文（HTML→markdown），无需 `enrichBody`。
+- 归一化：`normalizeRss` 用 entry 的 `content:encoded`/`content`/`summary` 作正文（HTML→markdown），无需 `enrichContent`。
 - 无鉴权、无限流。`Source.config = { feedUrl }`。
 - **已用真实 feed（Hacker News）端到端验证**：discover→fetch 20 条→归一化出标题/正文/时间。
 - RSS 与微信目前共用 Collector 全局串行锁；这是安全优先的简单实现，不代表 RSS 本身有配额限制。

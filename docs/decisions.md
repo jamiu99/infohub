@@ -71,13 +71,14 @@
 - **理由**：让“文件为源”成为可验证事实；SQLite 丢失后仍能恢复查询、状态和去重，合法的外部文件变化也不会与 App 永久分叉。
 - **代价**：启动与同步需要扫描 Markdown；当前同步是同步 I/O，规模扩大后需增量 mtime/manifest；运行中外部删除文件要到完整 rebuild 才清理旧索引。
 
-## ADR-010 外部正文按不可信内容处理
+## ADR-010 Markdown/RSS 展示按不可信内容处理
 
 - **日期**：2026-07-11
-- **决策**：Markdown renderer 只生成有限标签、只接受绝对 http(s) URL，并用 DOMPurify allowlist 二次清洗；renderer 配 CSP 和 Chromium sandbox；main 只允许 http(s) 交给 `shell.openExternal`。
-- **理由**：公众号/RSS 正文可包含攻击者控制的文本和链接，renderer 又暴露了业务 IPC，必须采用分层防御而非依赖自写转义。
+- **决策**：Markdown renderer（包括公众号阅读版）只生成有限标签、只接受绝对 http(s) URL，并用 DOMPurify allowlist 二次清洗；renderer 配 CSP 和 Chromium sandbox；main 只允许 http(s) 交给 `shell.openExternal`。
+- **理由**：RSS/Markdown 可包含外部文本和链接，renderer 又暴露了业务 IPC，采用既有分层防护而不依赖自写转义。
 - **代价**：相对链接、`data:` 图片和非 http(s) scheme 会被丢弃；CSP/sandbox 可能影响少数图片或 preload 行为，发布前需桌面人工验收。
 - **2026-07-13 补充**：sandboxed preload 不支持 ESM import，因此强制输出单文件 CJS，并用真实 Electron smoke test 验证 `window.api` 和 IPC；`v0.1.2` 因违反该约束而撤回。
+- **2026-07-14 边界调整**：官方 `mp.weixin.qq.com` 正文 HTML 的原始排版展示改由 ADR-015 决定；该来源按产品选择视为可信，iframe 主要负责 CSS/布局隔离。ADR-010 继续完整适用于 RSS 与 Markdown 阅读版，原有清洗测试不删除。
 
 ## ADR-011 永久取消一切 AI 直接集成
 
@@ -113,3 +114,26 @@
 - **布局**：三栏允许独立隐藏和相邻拖动调宽；顶部工具栏始终存在，负责恢复隐藏栏目。界面偏好只存 renderer `localStorage`，不进入业务设置或团队同步。
 - **错误反馈**：用户可见异常必须先转换为中文和处理建议，不直接展示 `The operation was aborted due to timeout` 一类底层运行时文本；原始异常仍写主进程日志供诊断。
 - **理由**：日常阅读频率远高于账号、团队和更新管理；把低频管理面板常驻左栏会挤压信源与正文空间，也使窄窗口更容易发生覆盖。
+
+## ADR-015 微信经典图文同时保存 Markdown、正文 HTML 与完整页面
+
+- **日期**：2026-07-14
+- **决策**：经典微信公众号页用 `parse5` HTML 树定位 `#js_content`；Article Markdown 继续作为跨信源文本投影，同目录保存 `.content.html` 原始排版 sidecar，`raw/` 另保存 SHA-256 命名的未改写 `.page.html` 完整页面。
+- **展示**：微信详情有正文 HTML 时默认在 iframe 显示原始排版，也可切换 Markdown 阅读版。产品把官方 `mp.weixin.qq.com` 正文视为可信来源；iframe 是 CSS、尺寸和滚动隔离，不把它描述成恶意内容防线。静态快照不主动执行微信页面脚本，动态组件必要时打开原文。
+- **生命周期**：Article frontmatter 记录 `status/parserVersion/contentHtmlPath/pageHtmlPath/lastAttemptAt/lastSuccessAt/error`。`seen_items` 只做条目去重；失败、正文 sidecar/本机完整页面路径或文件缺失、或旧 parserVersion 在后续手动刷新中重试，失败不得用空内容覆盖已有完整正文。
+- **读取边界**：`article:list` 不携带 HTML，只有 `article:get` 按需读取 sidecar。
+- **团队边界**：同步 Markdown + 正文 HTML + URL；完整页面、Raw 和凭据不上传。团队协议的破坏性升级策略见 ADR-016。
+- **格式**：正文和页面均保留 UTF-8 明文，不做应用层压缩，不使用 Base64。
+- **代价与后续**：磁盘和团队正文体积增加；新旧 SSR 图片页、需要脚本的动态组件、完整语义块和离线批量重放仍需后续实现。
+
+## ADR-016 测试期团队正文 HTML 采用破坏性协议升级
+
+- **日期**：2026-07-15
+- **决策**：Article 存在正文 HTML 时，桌面端直接在团队 DTO 中发送 `contentHtml`；所有团队端点硬切 `/api/v2`，`join/status` 不协商能力，不维护 v1 fallback，也不支持旧桌面端、旧服务端或混合版本。
+- **理由**：项目仍处于大量测试和快速迭代阶段，维护双协议会增加同步状态、历史补传和测试组合，却不能改善当前核心数据质量。此阶段优先保持单一明确契约。
+- **升级顺序**：先暂停旧客户端同步并升级 `infohub-team-server`，确认健康后再升级团队内全部桌面端，最后恢复同步。App 内更新只覆盖桌面端，不能替代服务端升级。
+- **失败处理**：每轮先请求 `/api/v2/status`；新客户端误连旧服务端时在 404 处暂停并保留 outbox，不会先 push。确定性 eventId 的协议版本输入同步升级为 2，旧 ack/quarantine 不会阻止新事件；不迁移旧标记。
+- **批次边界**：客户端按 `JSON.stringify({items})` 的实际 UTF-8 字节数组批，预算 12 MiB；服务端请求体上限 16 MiB。单项 JSON 已超过预算时本地隔离，不发送后等待 413。pull 默认每页 50 条。
+- **内容版本**：`read/archived` 是本机状态，修改它们必须写回文件但不得推进 Article `updatedAt`，否则历史补传会把旧正文伪装成新版。
+- **不变边界**：完整 `.page.html`、Raw、Cookie、token、fingerprint、浏览器 session、本地路径和正文诊断不上传；只有 Markdown、正文 HTML、原文 URL 及显式 allowlist 元数据进入团队服务。
+- **未来重开条件**：进入稳定发布、出现不可控的分阶段升级需求，或协议需要服务多个长期版本时，再设计显式协议版本与迁移窗口；不回补临时能力协商分支。

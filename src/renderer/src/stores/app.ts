@@ -1,6 +1,6 @@
 // 前端状态：信源、文章、账号、进度。集中管理并订阅 main 推送。
 import { reactive, readonly } from 'vue'
-import type { Source, Article, DiscoverResult } from '../../../shared/contract'
+import type { Source, Article, ArticleDetail, DiscoverResult } from '../../../shared/contract'
 import type { WechatCollectionSettings, WxAccountView } from '../../../shared/wechat'
 import type { InfohubApi, IngestProgress, UpdateStatus } from '../../../shared/ipc'
 import { userFacingError } from '../../../shared/errors'
@@ -17,7 +17,7 @@ interface State {
   articlesLoading: boolean
   articlesError: string
   selectedSourceId: string | null // null = 全部
-  selectedArticle: Article | null
+  selectedArticle: ArticleDetail | null
   filter: 'unread' | 'all' | 'archived'
   articleScope: 'mine' | 'team'
   team: TeamStatus | null
@@ -134,7 +134,14 @@ export const store = {
   },
 
   async refreshAll(): Promise<void> {
-    await Promise.all([this.loadSources(), this.loadArticles()])
+    const selectedId = state.selectedArticle?.id
+    const [, , selected] = await Promise.all([
+      this.loadSources(),
+      this.loadArticles(),
+      selectedId ? api.article.get(selectedId) : Promise.resolve(null)
+    ])
+    // 采集可能刚为当前文章补齐 HTML；列表刷新时同时替换详情，避免必须重新点选。
+    if (selectedId && state.selectedArticle?.id === selectedId) state.selectedArticle = selected
   },
 
   async selectSource(id: string | null): Promise<void> {

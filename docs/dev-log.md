@@ -2,7 +2,7 @@
 
 > 上级：[overview.md](overview.md) · 数据接口：[data-interface.md](data-interface.md)
 
-最后更新：2026-07-13，`v0.2.1` 阅读界面整理。
+最后更新：2026-07-15，v0.3.0 微信经典图文三份归档、原始排版与破坏性团队 HTML 协议。
 
 ## 代码地图
 
@@ -21,39 +21,53 @@
 | 文件/SQLite | `src/core/store/index.ts`、`markdown.ts`、`src/core/paths.ts` |
 | 团队同步 | `src/core/team/sync-client.ts`、`sync-storage.ts`、`apply-remote.ts` |
 | preload | `src/preload/index.ts` |
-| Vue 看板 | `src/renderer/src/stores/app.ts`、`layout.ts`、`components/*.vue`、`styles/main.css` |
-| 内容安全 | `src/renderer/src/markdown.ts`、`src/renderer/index.html` |
+| Vue 看板 | `src/renderer/src/stores/app.ts`、`layout.ts`、`wechat-html.ts`、`components/*.vue`、`styles/main.css` |
+| 内容呈现 | `src/renderer/src/markdown.ts`、`src/renderer/src/wechat-html.ts`、`src/renderer/index.html` |
 | 更新/发布 | `src/main/update-controller.ts`、`src/main/updater.ts`、`electron-builder.yml`、`.github/workflows/release.yml` |
 
 仓库已没有 AI CLI、Skill 安装器或 `core/agent` 目录。
 
-## 2026-07-13 自动化基线
+## 微信公众号 HTML 正文实现（2026-07-14）
+
+- 只读审阅 `refs/NewsCrawler` 的公众号抓取、普通 DOM/SSR 解析、内容模型、图片下载和 Markdown 输出；未修改参考仓库。
+- 决定只借鉴分层、双解析路径、有序内容块和图片下载防护，不复制 GPLv3 源码、不引入 Python sidecar。
+- 经典图文改用 `parse5` 树定位 `#js_content`，同时保存 Markdown、保留外层/内联样式的 `.content.html`，以及 SHA-256 命名的未改写 `.page.html`。
+- 展示 sidecar 提升 `data-src/data-original/data-backsrc`、补绝对 URL；原始页面不改写。正文 HTML/Markdown 不压缩、不使用 Base64。
+- Article frontmatter 增加内容状态、解析器版本、sidecar 路径、尝试/成功时间和错误；`seen_items` 命中后仍会为失败、正文 HTML/本机完整页面路径或文件缺失、或旧版本产物重试，失败不覆盖已有完整正文。
+- IPC 改成列表不载 HTML、详情按需读取；微信详情默认 iframe 原始排版，可切换 Markdown 阅读版，长正文具备独立滚动。
+- 团队同步在 Article 有内容时直接携带 `contentHtml`；只同步 Markdown、正文 HTML 和 URL，不上传完整页面/Raw/凭据。
+- 测试期团队协议硬切 `/api/v2`，不维护 v1 fallback 或能力协商；同步先 status 后 push，push 按 12 MiB 实际 JSON 字节预算分批，pull 每页 50 条。v0.3.0 必须先升级服务端，再升级全部桌面端，混合版本不受支持。
+- 阅读/归档写回 Article 文件但不推进内容 `updatedAt`，避免状态操作改变团队 payload 或确定性 eventId。
+- 新旧 SSR 图片页、风控/验证页、语义内容块与依赖脚本的动态组件仍属于后续。
+- 详细实施依据见 [wechat-content.md](wechat-content.md)。
+
+## 2026-07-14 自动化基线
 
 | 命令 | 结果 |
 |------|------|
 | `pnpm typecheck` | ✅ main/preload/core/shared + renderer 通过 |
-| `pnpm test:core` | ✅ 63/63，0 fail |
+| `pnpm test:core` | ✅ 80/80，0 fail |
 | `pnpm build` | ✅ main/preload/renderer 生产构建通过 |
 | `pnpm verify:bundle` | ✅ sandbox preload 为单文件 CJS，主窗口路径一致 |
-| `pnpm smoke:desktop` | ✅ 真实 Electron 中账号列表、设置读写 IPC 与更新菜单通过 |
+| `pnpm smoke:desktop` | ✅ 真实 Electron 中账号列表、设置读写 IPC、更新菜单，以及 CSP 下 `srcdoc` iframe/微信官方 base URL 通过 |
 | `pnpm audit --prod` | ✅ 未发现已知生产依赖漏洞 |
 | Markdown 链接 / `git diff --check` | ✅ |
 | GitHub Release workflow | ✅，Windows 打包前校验版本并重跑完整门禁 |
 | `./verify.sh` | ✅，本地与 `main`/PR CI 共用 |
 
-63 项测试分布：
+76 项测试分布：
 
 - 账号池、可配置配额与限流观测：12。
 - 设置文件加载、原子保存与边界校验：3。
-- Collector 串行锁与未知 adapter：2。
-- 公众号正文提取与 HTML → Markdown：5。
-- renderer Markdown 与危险 URL/HTML：4。
+- Collector 串行锁、未知 adapter 与失败正文重试：3。
+- 公众号页面抓取、树提取、展示 sidecar、超时中文化与 HTML → Markdown：10。
+- renderer Markdown 与微信 iframe `srcdoc`：7。
 - RSS/Atom、adapter、normalizer 与网络容错：8。
-- Store 往返、状态、重建、外部文件同步、迁移和路径：7。
+- Store 往返、HTML sidecar/完整页面、列表/详情、状态、重建、外部文件同步、迁移和路径：9。
 - 运行时数据目录说明：1。
 - 微信登录 URL 白名单与传统二维码切换：2。
 - 用户确认式更新状态机：5。
-- 团队 HTTPS、outbox/ack/隔离、入组/同步、范围重建、RSS 来源映射、取消订阅和贡献翻转：9。
+- 团队 HTTPS、outbox/ack/隔离、入组/同步、正文 HTML 直传、范围重建、RSS 来源映射、取消订阅和贡献翻转：11。
 - 用户可见异常中文转换与三栏布局归一化/拖动边界：5。
 
 ## 桌面阅读界面整理（2026-07-13）
@@ -139,9 +153,10 @@ sudo apt-get install -y libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libgbm1 
 1. 后台采集错误和 quota waiting 缺明确前端反馈。
 2. 微信账号池在 safeStorage 不可用时仍静默明文，缺格式版本、告警与迁移；团队设备 token 已改为拒绝明文保存。
 3. 普通 push/PR 与 Release 已有门禁，但 GitHub 分支保护规则尚未核验。
-4. sandbox preload 已做 Linux Electron smoke test；CSP 图片、`v0.2.1` 二维码、配额/团队界面、三栏拖动、原生更新对话框和系统外链仍需真实 Windows 点击验收。
+4. sandbox preload 已做 Linux Electron smoke test；CSP 图片、`v0.3.0` 二维码、配额/团队界面、三栏拖动、原生更新对话框和系统外链仍需真实 Windows 点击验收。
 5. 两个 probe 脚本失效，尚未纳入 `verify.sh`。
 6. 默认团队 HTTPS `/healthz` 已验证可用，但进程守护/备份/外部监控和两设备历史补传、断网恢复、contribution 合并仍需真实环境验证。
+7. 微信经典 HTML 已进入基线；新旧 SSR 图片页、风控/验证页、动态组件和历史 `.page.html` 批量重放尚未实现。
 
 ## 仍需补的测试
 
@@ -150,5 +165,6 @@ sudo apt-get install -y libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libgbm1 
 - Service IPC 参数校验、后台任务错误事件和 source 删除。
 - renderer 组件交互/E2E。
 - CSP/sandbox 的真实 Electron 运行验收。
+- 真实微信经典图文 iframe、懒加载媒体、长文、阅读版切换，以及 SSR/异常页 fixture。
 - Windows 安装和双版本自动更新。
 - 已隔离事件的修复/重试 UI、cursor 故障、两设备并发上传和 assignment/lease 桌面集成。

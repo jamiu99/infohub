@@ -82,12 +82,15 @@ test('阅读/归档状态同时写入文件与索引，重建后保持', () => {
   const { store, dir } = freshStore()
   try {
     const a = store.saveArticle(normalizeWechat(toRawItem(source.id, rawItem), source))
+    const contentUpdatedAt = a.updatedAt
     assert.equal(store.unreadCounts()[source.id], 1)
     store.setRead(a.id, true)
     assert.equal(store.unreadCounts()[source.id] ?? 0, 0)
     assert.equal(store.getArticle(a.id)?.read, true)
+    assert.equal(store.getArticle(a.id)?.updatedAt, contentUpdatedAt)
     store.setArchived(a.id, true)
     assert.equal(store.getArticle(a.id)?.archived, true)
+    assert.equal(store.getArticle(a.id)?.updatedAt, contentUpdatedAt)
     assert.equal(store.listArticles({ filter: 'archived' })[0]?.id, a.id)
 
     store.rebuildIndex()
@@ -164,6 +167,91 @@ test('文章文件路径不能逃出 data/articles', () => {
   try {
     const article = normalizeWechat(toRawItem(source.id, rawItem), source)
     assert.throws(() => store.saveArticle({ ...article, filePath: '../../escape.md' }), /非法数据路径/)
+  } finally {
+    store.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('微信正文产物分别落到 Markdown、正文 HTML sidecar 与原始页面，并可重启恢复', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'infohub-content-test-'))
+  const paths = makePaths(dir)
+  let store: Store | null = new Store(paths)
+  try {
+    const article = normalizeWechat(toRawItem(source.id, rawItem), source)
+    const saved = store.saveArticle(
+      {
+        ...article,
+        body: '完整正文',
+        content: {
+          status: 'complete',
+          parserVersion: 1,
+          lastAttemptAt: 100,
+          lastSuccessAt: 100
+        }
+      },
+      {
+        contentHtml: '<div id="js_content"><p>完整正文</p></div>',
+        pageHtml: '<!doctype html><html><body>原始微信页面</body></html>'
+      }
+    )
+
+    assert.ok(saved.content?.contentHtmlPath)
+    assert.ok(saved.content?.pageHtmlPath)
+    const markdownPath = join(paths.articles, saved.filePath!)
+    const contentPath = join(paths.articles, saved.content!.contentHtmlPath!)
+    const pagePath = join(paths.raw, saved.content!.pageHtmlPath!)
+    assert.ok(existsSync(markdownPath))
+    assert.equal(readFileSync(contentPath, 'utf8'), '<div id="js_content"><p>完整正文</p></div>')
+    assert.equal(
+      readFileSync(pagePath, 'utf8'),
+      '<!doctype html><html><body>原始微信页面</body></html>'
+    )
+    assert.match(readFileSync(markdownPath, 'utf8'), /^content: /m)
+
+    const listed = store.listArticles()[0]
+    assert.equal('contentHtml' in listed, false)
+    assert.equal(store.getArticleDetail(saved.id)?.contentHtml, '<div id="js_content"><p>完整正文</p></div>')
+
+    store.close()
+    store = new Store(paths)
+    const restored = store.getArticleDetail(saved.id)
+    assert.equal(restored?.content?.status, 'complete')
+    assert.equal(restored?.contentHtml, '<div id="js_content"><p>完整正文</p></div>')
+    assert.equal(store.hasArticlePageHtml(restored!), true)
+    rmSync(join(paths.raw, restored!.content!.pageHtmlPath!), { force: true })
+    assert.equal(store.hasArticlePageHtml(restored!), false)
+  } finally {
+    store?.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('取消纯本地信源时删除文章与正文 sidecar，但保留 raw 原始页面用于溯源', () => {
+  const { store, dir } = freshStore()
+  try {
+    const article = normalizeWechat(toRawItem(source.id, rawItem), source)
+    const saved = store.saveArticle(
+      {
+        ...article,
+        content: {
+          status: 'complete',
+          parserVersion: 1,
+          lastAttemptAt: 100,
+          lastSuccessAt: 100
+        }
+      },
+      { contentHtml: '<div id="js_content">正文</div>', pageHtml: '<html>原页</html>' }
+    )
+    const markdownPath = join(dir, 'articles', saved.filePath!)
+    const contentPath = join(dir, 'articles', saved.content!.contentHtmlPath!)
+    const pagePath = join(dir, 'raw', saved.content!.pageHtmlPath!)
+
+    store.purgeSource(source.id)
+
+    assert.equal(existsSync(markdownPath), false)
+    assert.equal(existsSync(contentPath), false)
+    assert.equal(existsSync(pagePath), true)
   } finally {
     store.close()
     rmSync(dir, { recursive: true, force: true })

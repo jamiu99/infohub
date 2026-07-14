@@ -4,12 +4,13 @@
 
 ## 当前发布状态
 
-2026-07-13 的发布基线：
+2026-07-15 的发布基线：
 
-- 当前源码版本为 `v0.2.1`，发布说明见 [releases/v0.2.1.md](releases/v0.2.1.md)。
-- 上个正式 GitHub Release 是 `v0.2.0`；`v0.1.2` 因 preload 回归已取消并转为 draft。
+- 当前待发布源码版本为 `v0.3.0`，发布说明见 [releases/v0.3.0.md](releases/v0.3.0.md)。
+- 上个正式 GitHub Release 是 `v0.2.1`；`v0.1.2` 因 preload 回归已取消并转为 draft。
 - Release workflow 已在 `v0.1.1` 补齐版本校验、typecheck 和核心测试。
 - 尚无 Windows 安装人工验收或跨版本自动更新验收记录，不能把“存在更新代码”表述为“升级闭环已验收”。
+- `v0.3.0` 的团队同步协议包含正文 HTML并硬切 `/api/v2`，不提供 v1 fallback；不支持旧桌面端、旧服务端与新版本混用。
 
 仓库和 Release 当前是 **Public**，`electron-updater` 可直接读取公开 Release，无需客户端 token。
 
@@ -34,22 +35,33 @@ checkout
 
 ## 发布下一版本
 
-不要复用旧 tag。例如发布 `0.2.1`：
+不要复用旧 tag。例如发布 `0.3.0`：
 
 ```bash
 # 1. 更新版本、文档和 release notes
-pnpm version 0.2.1 --no-git-tag-version
+pnpm version 0.3.0 --no-git-tag-version
 ./verify.sh
 
 # 2. 确认工作树、提交和远端正确后再创建 tag
-git tag v0.2.1
+git tag v0.3.0
 git push origin main
-git push origin v0.2.1
+git push origin v0.3.0
 ```
 
 约束：`package.json.version` 必须与 tag 去掉 `v` 后完全一致；Release workflow 会自动阻断不一致发布。
 
 Release notes 必须明确数据格式变化、迁移方式与已知限制；如曾包含直接 AI 集成，还要说明相关资源是否被移除或只被忽略。
+
+### v0.3.0 团队升级顺序
+
+`v0.3.0` 桌面端会在 Article 有 `.content.html` 时直接发送 `contentHtml`，不会先向服务端协商能力。发布或自托管升级必须按以下顺序执行：
+
+1. 暂停旧桌面端的团队同步或退出所有旧桌面端。
+2. 先部署与 `v0.3.0` 协议配套的 `infohub-team-server`，并确认 `/healthz` 正常。
+3. 再通过安装包或 App 内更新把全部桌面端升级到 `v0.3.0`。
+4. 最后恢复团队同步，并用至少两台设备验证 HTML sidecar 的 push/pull。
+
+混合版本不在支持范围内。App 内自动更新只更新桌面端，不会替用户升级自托管团队服务，因此连接团队的用户不能在服务端升级前确认桌面端更新。
 
 ## App 内自动更新
 
@@ -74,6 +86,7 @@ Release notes 必须明确数据格式变化、迁移方式与已知限制；如
 
 - [ ] `main` 已同步，工作树只包含本次发布内容。
 - [ ] 版本号、tag、文档一致。
+- [ ] 使用团队功能时，配套服务端已经先升级；不存在混合版本客户端。
 - [ ] `pnpm typecheck`、`pnpm test:core`、`pnpm build`、`pnpm verify:bundle` 通过。
 - [ ] 扫码、RSS、文章阅读和数据升级做过最小人工验收。
 - [ ] 团队版本还需验证 HTTPS 入组、历史补传、断网重试与两设备 pull。

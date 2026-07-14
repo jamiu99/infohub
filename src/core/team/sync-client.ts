@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import type { Article, Source } from '../../shared/contract'
+import type { Article, ArticleDetail, Source } from '../../shared/contract'
 import { userFacingError } from '../../shared/errors'
 import {
   toTeamArticlePayload,
@@ -35,6 +35,8 @@ export interface TeamSyncClientOptions {
 }
 
 const SYNC_INTERVAL_MS = 5 * 60 * 1000
+const TEAM_API_PREFIX = '/api/v2'
+const TEAM_PULL_LIMIT = 50
 
 class TeamHttpError extends Error {
   constructor(readonly status: number, message: string) {
@@ -99,7 +101,7 @@ export class TeamSyncClient {
     }
     const response = await this.requestJson<TeamJoinResponse>(
       serverUrl,
-      '/api/v1/join',
+      `${TEAM_API_PREFIX}/join`,
       { method: 'POST', body: JSON.stringify({ teamToken: input.teamToken, memberName, deviceName }) },
       null
     )
@@ -137,13 +139,13 @@ export class TeamSyncClient {
   }
 
   /** 本地文章落盘后仅写可靠队列，不进行网络请求，因此采集链不会被网络阻塞。 */
-  enqueue(source: Source, article: Article, emitStatus = true): boolean {
+  enqueue(source: Source, article: Article | ArticleDetail, emitStatus = true): boolean {
     if (!this.enabled || !this.credentials || this.credentials.serverUrl !== this.serverUrl) return false
     const sourcePayload = toTeamSourcePayload(source)
     const articlePayload = toTeamArticlePayload(article)
     const eventId = createHash('sha256')
       .update(JSON.stringify({
-        version: 1,
+        version: 2,
         instanceId: this.credentials.instanceId,
         deviceId: this.credentials.device.id,
         source: sourcePayload,
@@ -169,7 +171,7 @@ export class TeamSyncClient {
     return queued
   }
 
-  seedExisting(sources: Source[], articles: Article[]): number {
+  seedExisting(sources: Source[], articles: Array<Article | ArticleDetail>): number {
     const sourceById = new Map(sources.map((source) => [source.id, source]))
     let seeded = 0
     for (const article of articles) {
@@ -227,7 +229,7 @@ export class TeamSyncClient {
   private async refreshServerStatus(): Promise<void> {
     const response = await this.requestJson<TeamServerStatusResponse>(
       this.serverUrl,
-      '/api/v1/status',
+      `${TEAM_API_PREFIX}/status`,
       { method: 'GET' },
       this.credentials!.deviceToken
     )
@@ -250,7 +252,7 @@ export class TeamSyncClient {
 
   private async pushPending(): Promise<void> {
     while (true) {
-      const items = this.storage.readBatch(100)
+      const items = this.storage.readBatch()
       if (items.length === 0) return
       await this.pushBatch(items)
       this.emit()
@@ -261,7 +263,7 @@ export class TeamSyncClient {
     try {
       await this.requestJson<TeamPushResponse>(
         this.serverUrl,
-        '/api/v1/sync/push',
+        `${TEAM_API_PREFIX}/sync/push`,
         { method: 'POST', body: JSON.stringify({ items }) },
         this.credentials!.deviceToken
       )
@@ -287,7 +289,7 @@ export class TeamSyncClient {
     while (true) {
       const response = await this.requestJson<TeamPullResponse>(
         this.serverUrl,
-        `/api/v1/sync/pull?cursor=${cursor}&limit=200`,
+        `${TEAM_API_PREFIX}/sync/pull?cursor=${cursor}&limit=${TEAM_PULL_LIMIT}`,
         { method: 'GET' },
         this.credentials!.deviceToken
       )
@@ -339,10 +341,10 @@ export class TeamSyncClient {
       } catch {
         // 无 JSON 错误体时只报告状态码。
       }
-      throw new TeamHttpError(
-        response.status,
-        `团队服务器请求失败 (${response.status})${detail ? `：${detail}` : ''}`
-      )
+      const versionHint = response.status === 404 && path.startsWith(TEAM_API_PREFIX)
+        ? '：服务器未提供团队 API v2，请先升级团队服务端'
+        : detail ? `：${detail}` : ''
+      throw new TeamHttpError(response.status, `团队服务器请求失败 (${response.status})${versionHint}`)
     }
     return (await response.json()) as T
   }

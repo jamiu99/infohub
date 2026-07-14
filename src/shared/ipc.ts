@@ -1,7 +1,7 @@
 // IPC 契约：renderer 通过 preload 暴露的 window.api 调用 main。
 // 单一事实来源，preload 与 renderer 类型都从这里取。
 
-import type { Source, Article, DiscoverResult } from './contract'
+import type { Source, Article, ArticleDetail, DiscoverResult } from './contract'
 import type { WechatCollectionSettings, WxAccountView } from './wechat'
 import type { TeamJoinInput, TeamStatus } from './team'
 
@@ -46,7 +46,7 @@ export interface InfohubApi {
       filter?: 'unread' | 'all' | 'archived'
       scope?: 'mine' | 'team'
     }): Promise<Article[]>
-    get(id: string): Promise<Article | null>
+    get(id: string): Promise<ArticleDetail | null>
     markRead(id: string, read: boolean): Promise<void>
     archive(id: string): Promise<void>
     unreadCounts(): Promise<Record<string, number>> // sourceId → 未读数

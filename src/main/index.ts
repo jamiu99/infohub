@@ -114,12 +114,26 @@ function createWindow(): void {
           const initial = await window.api.account.getCollectionSettings();
           const updated = await window.api.account.setHourlyRequestLimit(23);
           const reread = await window.api.account.getCollectionSettings();
+          const frameLoaded = await new Promise((resolve) => {
+            const frame = document.createElement('iframe');
+            const timeout = setTimeout(() => resolve(false), 2000);
+            frame.onload = () => {
+              clearTimeout(timeout);
+              const ok = frame.contentDocument?.getElementById('srcdoc-smoke')?.textContent === 'iframe ok'
+                && frame.contentDocument?.baseURI === 'https://mp.weixin.qq.com/s/smoke';
+              frame.remove();
+              resolve(ok);
+            };
+            frame.srcdoc = '<base href="https://mp.weixin.qq.com/s/smoke"><p id="srcdoc-smoke">iframe ok</p>';
+            document.body.appendChild(frame);
+          });
           return Array.isArray(accounts)
             && initial?.hourlyRequestLimit === 20
             && team?.state === 'disabled'
             && team?.serverUrl === 'https://home.agent-wiki.cn:18038'
             && updated?.hourlyRequestLimit === 23
-            && reread?.hourlyRequestLimit === 23;
+            && reread?.hourlyRequestLimit === 23
+            && frameLoaded;
         })()`)
         .then((ok) => {
           clearTimeout(timer)
@@ -127,7 +141,9 @@ function createWindow(): void {
           const passed = ok === true && menuReady
           finish(
             passed,
-            passed ? 'preload + account/settings IPC + update menu' : 'bridge or update menu missing'
+            passed
+              ? 'preload + account/settings IPC + srcdoc iframe + update menu'
+              : 'bridge, srcdoc iframe or update menu missing'
           )
         })
         .catch((error: Error) => {

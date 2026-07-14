@@ -24,5 +24,5 @@ export class RssAdapter implements SourceAdapter {
     if (!feed) return { items: [], status: 'error', message: 'feed 拉取/解析失败' }
     return { items: feed.entries.map((e) => entryToRawItem(source.id, e)), status: 'ok' }
   }
-  // 无 enrichBody：RSS entry 的 content/summary 已在 normalizer 里用作正文。
+  // RSS entry 的 content/summary 已在 normalizer 里用作正文，无需详情补抓。
 }

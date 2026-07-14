@@ -69,7 +69,7 @@ export class Service {
     this.registry.register(new WechatAdapter(this.pool))
     this.registry.register(new RssAdapter())
     this.collector = new Collector(this.registry, this.store, (source, article) => {
-      this.team.enqueue(source, article)
+      this.team.enqueue(source, this.store.getArticleDetail(article.id) ?? article)
     })
   }
 
@@ -111,7 +111,7 @@ export class Service {
     this.broadcast('ingest-progress', { phase: 'polling', currentSource: source.name, queued: 1 })
     try {
       const r = await this.collector.collectSource(source)
-      if (r.newArticles > 0) this.broadcast('articles-changed')
+      if (r.newArticles + r.updatedArticles > 0) this.broadcast('articles-changed')
     } finally {
       this.broadcast('ingest-progress', { phase: 'idle', queued: 0 })
     }
@@ -121,7 +121,7 @@ export class Service {
   private async refreshInBackground(sourceId?: string): Promise<void> {
     const sources = this.store.listSources()
     const targets = sourceId ? sources.filter((s) => s.id === sourceId) : sources.filter((s) => s.enabled)
-    let total = 0
+    let totalChanged = 0
     try {
       for (let i = 0; i < targets.length; i++) {
         const s = targets[i]
@@ -131,12 +131,12 @@ export class Service {
           queued: targets.length - i
         })
         const r = await this.collector.collectSource(s)
-        total += r.newArticles
-        if (r.newArticles > 0) this.broadcast('articles-changed') // 每源完成即刷新
+        totalChanged += r.newArticles + r.updatedArticles
+        if (r.newArticles + r.updatedArticles > 0) this.broadcast('articles-changed') // 每源完成即刷新
       }
     } finally {
       this.broadcast('ingest-progress', { phase: 'idle', queued: 0 })
-      if (total > 0) this.broadcast('articles-changed')
+      if (totalChanged > 0) this.broadcast('articles-changed')
     }
   }
 
@@ -234,7 +234,7 @@ export class Service {
       const followed = new Set(this.store.listSources().map((s) => s.id))
       return articles.filter((a) => followed.has(a.source.id))
     })
-    this.handle(IPC.articleGet, (id) => this.store.getArticle(id as string))
+    this.handle(IPC.articleGet, (id) => this.store.getArticleDetail(id as string))
     this.handle(IPC.articleMarkRead, (id, read) => this.store.setRead(id as string, read as boolean))
     this.handle(IPC.articleArchive, (id) => this.store.setArchived(id as string, true))
     this.handle(IPC.articleUnreadCounts, () => this.store.unreadCounts())

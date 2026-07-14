@@ -1,6 +1,11 @@
 // 统一采集接口。每种信源 = 一个 SourceAdapter，实现同一契约。
 // 加新信源 = 加一个 adapter，collector / store / process 都不动。见 docs/ingest.md。
-import type { Source, RawItem, DiscoverResult } from '../../shared/contract'
+import type {
+  Source,
+  RawItem,
+  DiscoverResult,
+  ArticleContentStatus
+} from '../../shared/contract'
 
 export type { DiscoverResult }
 
@@ -10,6 +15,16 @@ export interface FetchOutcome {
   /** 采集是否受阻（账号失效/限流等），供 collector 决定重试/提示 */
   status: 'ok' | 'no_account' | 'rate_limited' | 'auth_expired' | 'error'
   message?: string
+}
+
+/** 文章详情页的结构化补全结果；完整页面只在本机 raw/ 留档。 */
+export interface EnrichedArticleContent {
+  body: string
+  contentHtml?: string
+  pageHtml?: string
+  status: ArticleContentStatus
+  parserVersion: number
+  error?: { code: string; message: string }
 }
 
 /**
@@ -34,11 +49,15 @@ export interface SourceAdapter {
    */
   readiness?(): { ready: boolean; reason?: string }
 
+  /** 当前正文解析器版本；版本升级后允许手动刷新重跑旧产物。 */
+  contentParserVersion?: number
+
   /**
-   * 可选：为一篇 Article 补全正文（返回 markdown）。失败返回 null，不阻塞入库。
-   * wechat 列表接口只给摘要，需抓原文页；RSS entry 通常自带正文，可不实现。
+   * 可选：补全 Markdown、可展示正文 HTML 和完整页面快照。
+   * 返回 failed 也可以携带 pageHtml，供以后离线重新解析。
    */
-  enrichBody?(sourceUrl: string): Promise<string | null>
+  enrichContent?(sourceUrl: string): Promise<EnrichedArticleContent>
+
 }
 
 /** adapter 注册表：按 type 找 adapter */

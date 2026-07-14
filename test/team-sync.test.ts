@@ -21,6 +21,8 @@ import { toRawItem } from '../src/core/ingest/wechat'
 import {
   DEFAULT_TEAM_SERVER_URL,
   rssSourceId,
+  TEAM_PUSH_BODY_BUDGET_BYTES,
+  toTeamArticlePayload,
   validateTeamServerUrl,
   type TeamArticleRecord,
   type TeamArticleUpload,
@@ -108,7 +110,7 @@ test('outbox 隔离损坏事件，不阻塞后续正常事件', () => {
       article: { ...item.article, body: 'x'.repeat(2 * 1024 * 1024 + 1) }
     })
     storage.enqueue(item)
-    assert.deepEqual(storage.readBatch(1), [item])
+    assert.deepEqual(storage.readBatch(), [item])
     const quarantined = readdirSync(paths.teamQuarantine)
     assert.equal(quarantined.length, 3)
     assert.equal(quarantined.some((name) => /000-broken\.json$/.test(name)), true)
@@ -117,8 +119,129 @@ test('outbox 隔离损坏事件，不阻塞后续正常事件', () => {
     assert.equal(storage.cursor(), 7)
     const second = { ...item, eventId: 'zzz-next', article: { ...item.article, body: 'x'.repeat(500) } }
     storage.enqueue(second)
-    assert.equal(storage.readBatch(100, 600).length, 1)
+    assert.equal(storage.readBatch(600).length, 1)
   } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('outbox 按实际 push JSON 的 UTF-8 字节数分批，并保证至少返回队首一项', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'infohub-team-byte-batch-'))
+  const paths = makePaths(dir)
+  const makeItem = (eventId: string, contentHtml: string): TeamArticleUpload => ({
+    eventId,
+    collectedAt: 1,
+    source: { type: 'wechat', name: '转义测试', config: { fakeid: 'fake-byte-test' } },
+    article: {
+      externalId: `https://mp.weixin.qq.com/s/${eventId}`,
+      title: '转义测试',
+      body: '正文',
+      contentHtml,
+      publishedAt: 1,
+      sourceUrl: `https://mp.weixin.qq.com/s/${eventId}`
+    }
+  })
+  const first = makeItem('a-first', '<div>"\\"\\"\\"</div>')
+  const second = makeItem('b-second', '<div>"\\"\\"\\"</div>')
+  try {
+    const storage = new TeamSyncStorage(paths)
+    storage.enqueue(first)
+    storage.enqueue(second)
+    const firstBytes = Buffer.byteLength(JSON.stringify({ items: [first] }), 'utf8')
+    const pairBytes = Buffer.byteLength(JSON.stringify({ items: [first, second] }), 'utf8')
+    assert.ok(pairBytes > firstBytes)
+
+    const batch = storage.readBatch(pairBytes - 1)
+    assert.deepEqual(batch.map((item) => item.eventId), ['a-first'])
+    assert.equal(Buffer.byteLength(JSON.stringify({ items: batch }), 'utf8'), firstBytes)
+
+    // 自定义预算小于单项时仍返回队首；生产预算下这类事件会先被 validation 隔离。
+    assert.deepEqual(storage.readBatch(firstBytes - 1).map((item) => item.eventId), ['a-first'])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('单篇原文虽未超过 4 MiB，但 JSON 转义后超过 12 MiB 时会本地隔离', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'infohub-team-json-inflation-'))
+  const paths = makePaths(dir)
+  const credentials: TeamDeviceCredentials = {
+    serverUrl: DEFAULT_TEAM_SERVER_URL,
+    instanceId: 'instance-json-inflation',
+    teamName: '转义测试',
+    device: { id: 'device-json-inflation', memberName: '我', deviceName: '电脑' },
+    deviceToken: 'device-token'
+  }
+  const client = new TeamSyncClient({
+    paths,
+    serverUrl: DEFAULT_TEAM_SERVER_URL,
+    enabled: true,
+    credentials,
+    onCredentials: () => undefined,
+    onRemoteArticle: () => undefined
+  })
+  try {
+    const body = '"'.repeat(2 * 1024 * 1024)
+    const contentHtml = '"'.repeat(4 * 1024 * 1024)
+    assert.equal(Buffer.byteLength(body, 'utf8'), 2 * 1024 * 1024)
+    assert.equal(Buffer.byteLength(contentHtml, 'utf8'), 4 * 1024 * 1024)
+    assert.equal(
+      client.enqueue(source, { ...article('json-inflation'), body, contentHtml }),
+      false
+    )
+    assert.equal(client.status().pendingUploads, 0)
+    assert.equal(client.status().quarantinedUploads, 1)
+    const quarantine = readFileSync(
+      join(paths.teamQuarantine, readdirSync(paths.teamQuarantine)[0]),
+      'utf8'
+    )
+    assert.match(quarantine, /JSON 后超过 12 MiB/)
+
+    const controlCharacter = {
+      ...article('control-character'),
+      contentHtml: '<div>正文\u0000</div>'
+    }
+    assert.equal(client.enqueue(source, controlCharacter), false)
+    assert.equal(client.status().quarantinedUploads, 2)
+  } finally {
+    client.stop()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('API v2 硬切换：旧服务 status 404 时暂停，不会 push 或隔离 outbox', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'infohub-team-v2-cutover-'))
+  const paths = makePaths(dir)
+  const credentials: TeamDeviceCredentials = {
+    serverUrl: DEFAULT_TEAM_SERVER_URL,
+    instanceId: 'instance-v2',
+    teamName: 'v2 测试',
+    device: { id: 'device-v2', memberName: '我', deviceName: '电脑' },
+    deviceToken: 'device-token'
+  }
+  const requests: string[] = []
+  const client = new TeamSyncClient({
+    paths,
+    serverUrl: DEFAULT_TEAM_SERVER_URL,
+    enabled: true,
+    credentials,
+    fetchImpl: async (input) => {
+      requests.push(String(input))
+      return jsonResponse({ error: { code: 'not_found', message: '旧服务没有此路径' } }, 404)
+    },
+    onCredentials: () => undefined,
+    onRemoteArticle: () => undefined
+  })
+  try {
+    assert.equal(client.enqueue(source, article('v2-cutover')), true)
+    const result = await client.syncNow()
+    assert.equal(result.state, 'error')
+    assert.match(result.error ?? '', /API v2/)
+    assert.equal(result.pendingUploads, 1)
+    assert.equal(result.quarantinedUploads, 0)
+    assert.deepEqual(requests, [`${DEFAULT_TEAM_SERVER_URL}/api/v2/status`])
+  } finally {
+    client.stop()
     rmSync(dir, { recursive: true, force: true })
   }
 })
@@ -136,14 +259,14 @@ test('服务端永久拒绝只隔离坏事件，合法事件继续上传；私�
   const uploaded: string[] = []
   const fakeFetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = String(input)
-    if (url.endsWith('/api/v1/status')) {
+    if (url.endsWith('/api/v2/status')) {
       return jsonResponse({
         instanceId: credentials.instanceId,
         teamName: credentials.teamName,
         device: credentials.device
       })
     }
-    if (url.endsWith('/api/v1/sync/push')) {
+    if (url.endsWith('/api/v2/sync/push')) {
       const items = (JSON.parse(String(init?.body)) as { items: TeamArticleUpload[] }).items
       if (items.some((item) => item.article.externalId === 'server-reject')) {
         return jsonResponse({ error: { code: 'bad_request', message: '测试拒绝' } }, 400)
@@ -208,7 +331,7 @@ test('加入后设备 token 由服务端返回；断网保留 allowlist outbox�
   const fakeFetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = String(input)
     if (mode === 'join') {
-      assert.match(url, /\/api\/v1\/join$/)
+      assert.match(url, /\/api\/v2\/join$/)
       assert.deepEqual(JSON.parse(String(init?.body)), {
         teamToken: 'shared-once', memberName: '我', deviceName: '测试电脑'
       })
@@ -220,7 +343,7 @@ test('加入后设备 token 由服务端返回；断网保留 allowlist outbox�
     }
     if (mode === 'offline') return jsonResponse({ error: { code: 'OFFLINE', message: '暂时离线' } }, 503)
     authorization = new Headers(init?.headers).get('authorization') ?? ''
-    if (url.endsWith('/api/v1/status')) {
+    if (url.endsWith('/api/v2/status')) {
       return jsonResponse({
         instanceId: 'instance-1', teamName: '我的团队',
         device: { id: 'device-1', memberName: '我', deviceName: '测试电脑' }
@@ -254,16 +377,20 @@ test('加入后设备 token 由服务端返回；断网保留 allowlist outbox�
     assert.equal(persisted?.deviceToken, 'server-device-token')
     assert.equal(Object.hasOwn(persisted ?? {}, 'teamToken'), false)
 
-    assert.equal(client.seedExisting([source], [article()]), 1)
+    assert.equal(client.seedExisting([source], [{ ...article(), contentHtml: '<div>微信原始排版</div>' }]), 1)
     mode = 'offline'
     const failed = await client.syncNow()
     assert.equal(failed.state, 'error')
     assert.match(failed.error ?? '', /暂时离线/)
     assert.equal(failed.pendingUploads, 1)
     const queued = readFileSync(join(paths.teamOutbox, readdirSync(paths.teamOutbox)[0]), 'utf8')
-    const queuedObject = JSON.parse(queued) as { source: { config: object }; article: { ext: object } }
+    const queuedObject = JSON.parse(queued) as {
+      source: { config: object }
+      article: { ext: object; contentHtml?: string }
+    }
     assert.deepEqual(queuedObject.source.config, { fakeid: 'fake-1' })
     assert.deepEqual(queuedObject.article.ext, { digest: '摘要' })
+    assert.equal(queuedObject.article.contentHtml, '<div>微信原始排版</div>')
     assert.doesNotMatch(queued, /never-upload|ext-secret/)
 
     mode = 'online'
@@ -284,6 +411,157 @@ test('加入后设备 token 由服务端返回；断网保留 allowlist outbox�
   }
 })
 
+test('多篇接近 4 MiB 的正文 HTML 会按 12 MiB JSON 预算拆成多个 push，pull 每页 50 条', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'infohub-team-html-batches-'))
+  const paths = makePaths(dir)
+  const credentials: TeamDeviceCredentials = {
+    serverUrl: DEFAULT_TEAM_SERVER_URL,
+    instanceId: 'instance-html-batches',
+    teamName: '大正文测试',
+    device: { id: 'device-html-batches', memberName: '我', deviceName: '电脑' },
+    deviceToken: 'device-token'
+  }
+  const pushBodies: string[] = []
+  let pullUrl = ''
+  const fakeFetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const url = String(input)
+    if (url.endsWith('/api/v2/status')) {
+      return jsonResponse({
+        instanceId: credentials.instanceId,
+        teamName: credentials.teamName,
+        device: credentials.device
+      })
+    }
+    if (url.endsWith('/api/v2/sync/push')) {
+      pushBodies.push(String(init?.body))
+      const items = (JSON.parse(String(init?.body)) as { items: TeamArticleUpload[] }).items
+      return jsonResponse({ accepted: items.length, cursor: pushBodies.length })
+    }
+    pullUrl = url
+    return jsonResponse({ cursor: 0, hasMore: false, changes: [] })
+  }
+  const client = new TeamSyncClient({
+    paths,
+    serverUrl: DEFAULT_TEAM_SERVER_URL,
+    enabled: true,
+    credentials,
+    fetchImpl: fakeFetch,
+    onCredentials: () => undefined,
+    onRemoteArticle: () => undefined
+  })
+  try {
+    const wrapperBytes = Buffer.byteLength('<div></div>', 'utf8')
+    const contentHtml = `<div>${'x'.repeat(4 * 1024 * 1024 - wrapperBytes)}</div>`
+    assert.equal(Buffer.byteLength(contentHtml, 'utf8'), 4 * 1024 * 1024)
+    for (let index = 0; index < 3; index++) {
+      assert.equal(
+        client.enqueue(source, {
+          ...article(`https://mp.weixin.qq.com/s/large-${index}`),
+          id: `large-${index}`,
+          contentHtml
+        }),
+        true
+      )
+    }
+
+    const result = await client.syncNow()
+    assert.equal(result.state, 'ready')
+    assert.equal(result.pendingUploads, 0)
+    assert.equal(pushBodies.length, 2)
+    assert.deepEqual(
+      pushBodies.map((body) => (JSON.parse(body) as { items: unknown[] }).items.length),
+      [2, 1]
+    )
+    assert.equal(
+      pushBodies.every((body) => Buffer.byteLength(body, 'utf8') <= TEAM_PUSH_BODY_BUDGET_BYTES),
+      true
+    )
+    assert.match(pullUrl, /\/api\/v2\/sync\/pull\?cursor=0&limit=50$/)
+  } finally {
+    client.stop()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('团队同步直接发送可用的正文 HTML，不依赖协议能力协商', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'infohub-team-content-payload-'))
+  const paths = makePaths(dir)
+  const credentials: TeamDeviceCredentials = {
+    serverUrl: DEFAULT_TEAM_SERVER_URL,
+    instanceId: 'instance-content',
+    teamName: '正文测试',
+    device: { id: 'device-content', memberName: '我', deviceName: '电脑' },
+    deviceToken: 'device-token'
+  }
+  const client = new TeamSyncClient({
+    paths,
+    serverUrl: DEFAULT_TEAM_SERVER_URL,
+    enabled: true,
+    credentials,
+    onCredentials: () => undefined,
+    onRemoteArticle: () => undefined
+  })
+  const detail = { ...article('content-entry'), contentHtml: '<div id="js_content">原始排版</div>' }
+  try {
+    assert.equal(client.enqueue(source, detail), true)
+    const payload = JSON.parse(
+      readFileSync(join(paths.teamOutbox, readdirSync(paths.teamOutbox)[0]), 'utf8')
+    ) as TeamArticleUpload
+    assert.equal(payload.article.contentHtml, detail.contentHtml)
+  } finally {
+    client.stop()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('阅读与归档不会推进内容版本，团队 payload 和确定性事件保持不变', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'infohub-team-local-state-version-'))
+  const paths = makePaths(dir)
+  const store = new Store(paths)
+  const credentials: TeamDeviceCredentials = {
+    serverUrl: DEFAULT_TEAM_SERVER_URL,
+    instanceId: 'instance-local-state',
+    teamName: '本地状态测试',
+    device: { id: 'device-local-state', memberName: '我', deviceName: '电脑' },
+    deviceToken: 'device-token'
+  }
+  const client = new TeamSyncClient({
+    paths,
+    serverUrl: DEFAULT_TEAM_SERVER_URL,
+    enabled: true,
+    credentials,
+    onCredentials: () => undefined,
+    onRemoteArticle: () => undefined
+  })
+  try {
+    const saved = store.saveArticle({ ...article('local-state-stable'), updatedAt: 123 })
+    const before = store.getArticleDetail(saved.id)!
+    const payloadBefore = toTeamArticlePayload(before)
+    assert.equal(client.enqueue(source, before), true)
+    const firstEvent = JSON.parse(
+      readFileSync(join(paths.teamOutbox, readdirSync(paths.teamOutbox)[0]), 'utf8')
+    ) as TeamArticleUpload
+
+    store.setRead(saved.id, true)
+    store.setArchived(saved.id, true)
+    const after = store.getArticleDetail(saved.id)!
+    assert.equal(after.read, true)
+    assert.equal(after.archived, true)
+    assert.equal(after.updatedAt, 123)
+    assert.deepEqual(toTeamArticlePayload(after), payloadBefore)
+    assert.equal(client.enqueue(source, after), false)
+    assert.equal(readdirSync(paths.teamOutbox).length, 1)
+    const sameEvent = JSON.parse(
+      readFileSync(join(paths.teamOutbox, readdirSync(paths.teamOutbox)[0]), 'utf8')
+    ) as TeamArticleUpload
+    assert.equal(sameEvent.eventId, firstEvent.eventId)
+  } finally {
+    client.stop()
+    store.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('确定性事件在重启恢复时复用 outbox，2xx ack 后再次扫描不会重复上传', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'infohub-team-resume-'))
   const paths = makePaths(dir)
@@ -297,7 +575,7 @@ test('确定性事件在重启恢复时复用 outbox，2xx ack 后再次扫描�
   let pushes = 0
   const fakeFetch = async (input: string | URL | Request): Promise<Response> => {
     const url = String(input)
-    if (url.endsWith('/api/v1/status')) {
+    if (url.endsWith('/api/v2/status')) {
       return jsonResponse({
         instanceId: credentials.instanceId,
         teamName: credentials.teamName,
@@ -377,6 +655,74 @@ test('mine/team scope 可由文章文件重建，pull 不覆盖本地阅读状�
     assert.equal(store.listContributedArticlesForSync().map((item) => item.id).includes(local.id), true)
     store.rebuildIndex()
     assert.equal(store.listArticles({ scope: 'mine', filter: 'archived' })[0]?.id, local.id)
+  } finally {
+    store.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('团队正文 HTML 使用 sidecar 合并：本机贡献优先，缺失 HTML 的更新不会清空已有排版', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'infohub-team-content-html-'))
+  const store = new Store(makePaths(dir))
+  try {
+    const local = store.saveArticle(
+      {
+        ...article('local-html'),
+        content: {
+          status: 'complete',
+          parserVersion: 1,
+          lastAttemptAt: 100,
+          lastSuccessAt: 100
+        }
+      },
+      { contentHtml: '<div id="js_content">本机排版</div>' }
+    )
+    applyRemoteArticle(store, {
+      ...record('local-html'),
+      remoteId: 'remote-local-html',
+      article: {
+        ...record('local-html').article,
+        contentHtml: '<div id="js_content">团队排版</div>'
+      }
+    }, false)
+    assert.equal(store.getArticleDetail(local.id)?.contentHtml, '<div id="js_content">本机排版</div>')
+
+    const remoteRecord: TeamArticleRecord = {
+      ...record('team-html'),
+      remoteId: 'remote-team-html',
+      article: {
+        ...record('team-html').article,
+        contentHtml: '<div id="js_content">团队初版排版</div>'
+      }
+    }
+    const remote = applyRemoteArticle(store, remoteRecord, false)
+    assert.equal(
+      store.getArticleDetail(remote.id)?.contentHtml,
+      '<div id="js_content">团队初版排版</div>'
+    )
+
+    // 某次抓取只有 Markdown 时，不能把已有 HTML sidecar 清空。
+    applyRemoteArticle(store, {
+      ...remoteRecord,
+      article: { ...remoteRecord.article, contentHtml: undefined, body: '正文更新', updatedAt: 300 }
+    }, false)
+    assert.equal(
+      store.getArticleDetail(remote.id)?.contentHtml,
+      '<div id="js_content">团队初版排版</div>'
+    )
+
+    applyRemoteArticle(store, {
+      ...remoteRecord,
+      article: {
+        ...remoteRecord.article,
+        contentHtml: '<div id="js_content">团队新版排版</div>',
+        updatedAt: 400
+      }
+    }, false)
+    assert.equal(
+      store.getArticleDetail(remote.id)?.contentHtml,
+      '<div id="js_content">团队新版排版</div>'
+    )
   } finally {
     store.close()
     rmSync(dir, { recursive: true, force: true })
@@ -477,7 +823,9 @@ test('团队文章先 pull、随后本机真实采到时翻转贡献并入队，
   const dir = mkdtempSync(join(tmpdir(), 'infohub-team-flip-'))
   const store = new Store(makePaths(dir))
   const externalId = 'https://mp.weixin.qq.com/s/local-later'
-  const pulled = applyRemoteArticle(store, record(externalId), false)
+  const remoteRecord = record(externalId)
+  remoteRecord.article.contentHtml = '<div id="js_content">团队正文</div>'
+  const pulled = applyRemoteArticle(store, remoteRecord, false)
   store.setRead(pulled.id, true)
   const raw: RawItem = toRawItem(source.id, {
     aid: '1_1', appmsgid: 1, title: '本机再次采到', digest: 'x', link: externalId,
@@ -485,7 +833,17 @@ test('团队文章先 pull、随后本机真实采到时翻转贡献并入队，
   })
   const adapter: SourceAdapter = {
     type: 'wechat',
-    async fetch() { return { items: [raw], status: 'ok' } }
+    contentParserVersion: 1,
+    async fetch() { return { items: [raw], status: 'ok' } },
+    async enrichContent() {
+      return {
+        body: '团队正文',
+        contentHtml: '<div id="js_content">团队正文</div>',
+        pageHtml: '<html><div id="js_content">团队正文</div></html>',
+        status: 'complete',
+        parserVersion: 1
+      }
+    }
   }
   const registry = new AdapterRegistry()
   registry.register(adapter)
@@ -497,6 +855,7 @@ test('团队文章先 pull、随后本机真实采到时翻转贡献并入队，
     assert.equal(queued?.team?.contributedByMe, true)
     assert.equal(queued?.read, true)
     assert.equal(queued?.body, '团队正文')
+    assert.ok(store.getArticle(pulled.id)?.content?.pageHtmlPath)
     assert.equal(store.listArticles({ scope: 'mine' }).length, 1)
   } finally {
     store.close()

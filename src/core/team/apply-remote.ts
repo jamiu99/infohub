@@ -32,6 +32,7 @@ export function applyRemoteArticle(
 ): Article {
   const sourceId = localSourceId(record, localSources)
   const existing = store.findArticleByExternalId(sourceId, record.article.externalId)
+  const existingDetail = existing ? store.getArticleDetail(existing.id) : null
   const source: Article['source'] = {
     id: sourceId,
     type: record.source.type,
@@ -53,11 +54,38 @@ export function applyRemoteArticle(
       : remoteUpdatedAt >= existing.updatedAt
         ? record.article.body || existing.body
         : existing.body || record.article.body
+  const remoteContentHtml = record.article.contentHtml || undefined
+  const localContentHtml = existingDetail?.contentHtml
+  let contentHtml = localContentHtml
+  let writeRemoteContentHtml = false
+  if (!existing) {
+    contentHtml = remoteContentHtml
+    writeRemoteContentHtml = Boolean(remoteContentHtml)
+  } else if (!localContentHtml && remoteContentHtml) {
+    // 本地缺少原始排版时，即使这条远端记录稍旧，也允许它补齐缺失产物。
+    contentHtml = remoteContentHtml
+    writeRemoteContentHtml = true
+  } else if (!keepLocalBody && remoteContentHtml && remoteUpdatedAt >= existing.updatedAt) {
+    contentHtml = remoteContentHtml
+    writeRemoteContentHtml = true
+  }
+  const content = writeRemoteContentHtml
+    ? {
+        ...existing?.content,
+        status: 'complete' as const,
+        // 团队 DTO 暂不传解析器版本；按最低已知版本登记，避免把远端 HTML 误标成更高版本。
+        parserVersion: 1,
+        lastAttemptAt: remoteUpdatedAt,
+        lastSuccessAt: remoteUpdatedAt,
+        error: undefined
+      }
+    : existing?.content
   const incoming: Article = {
     id: existing?.id ?? `team-${createHash('sha256').update(record.remoteId).digest('hex')}`,
     externalId: record.article.externalId,
     title: record.article.title,
     body,
+    ...(content ? { content } : {}),
     publishedAt: record.article.publishedAt,
     sourceUrl: record.article.sourceUrl,
     source,
@@ -81,5 +109,8 @@ export function applyRemoteArticle(
   if (existing?.staleness !== undefined) incoming.staleness = existing.staleness
   if (existing?.provenance !== undefined) incoming.provenance = existing.provenance
   if (existing?.tags !== undefined) incoming.tags = existing.tags
-  return store.saveArticle(incoming)
+  return store.saveArticle(
+    incoming,
+    writeRemoteContentHtml && contentHtml ? { contentHtml } : {}
+  )
 }

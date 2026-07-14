@@ -30,12 +30,30 @@ export interface RawItem {
 
 export type Staleness = 'fresh' | 'aging' | 'stale'
 
+export type ArticleContentStatus = 'complete' | 'partial' | 'failed'
+
+/**
+ * 正文派生产物状态。两个 path 都相对各自数据根（articles/ 与 raw/），
+ * HTML 文本保存在 sidecar，不内联 frontmatter，避免文章列表 IPC 携带大字符串。
+ */
+export interface ArticleContentState {
+  status: ArticleContentStatus
+  parserVersion: number
+  contentHtmlPath?: string
+  pageHtmlPath?: string
+  lastAttemptAt: number
+  lastSuccessAt?: number
+  error?: { code: string; message: string }
+}
+
 /** 统一结构 —— 系统核心数据结构，所有信源归一到它 */
 export interface Article {
   id: string
   externalId: string // 信源内去重键；写入文件，保证 seen_items 可重建
   title: string
   body: string // markdown 正文
+  /** 微信正文 HTML/page HTML 的状态与 sidecar 引用；旧文件没有此字段。 */
+  content?: ArticleContentState
   publishedAt: number
   sourceUrl: string
   source: { id: string; type: string; name: string }
@@ -59,4 +77,9 @@ export interface Article {
   archived?: boolean
   createdAt: number
   updatedAt: number
+}
+
+/** article:get 的详情结果；article:list 不加载大体积 HTML sidecar。 */
+export interface ArticleDetail extends Article {
+  contentHtml?: string
 }

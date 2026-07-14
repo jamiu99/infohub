@@ -1,6 +1,7 @@
 // 存储层：文件为源 + SQLite 索引。见 docs/storage.md。
 // SQLite 用 Node 内置 node:sqlite（禁止三方库）。
 import { DatabaseSync } from 'node:sqlite'
+import { createHash } from 'node:crypto'
 import {
   mkdirSync,
   writeFileSync,
@@ -11,12 +12,19 @@ import {
   rmSync
 } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
-import type { Article, Source, RawItem } from '../../shared/contract'
+import type { Article, ArticleDetail, Source, RawItem } from '../../shared/contract'
 import type { Paths } from '../paths'
 import { articleToMarkdown, parseArticleMarkdown } from './markdown'
 
 const STORE_SCHEMA_VERSION = 3
 const FILE_SYNC_THROTTLE_MS = 500
+
+export interface ArticleArtifacts {
+  /** #js_content outerHTML，写入 articles/ 下与 Markdown 同名的 sidecar。 */
+  contentHtml?: string
+  /** 未改写的完整公开页面，使用 externalId SHA-256 命名并写入 raw/。 */
+  pageHtml?: string
+}
 
 /** 文件先写临时文件再 rename；失败时旧文件仍完整。 */
 function writeFileAtomic(path: string, content: string): void {
@@ -153,13 +161,43 @@ export class Store {
     writeFileAtomic(join(dir, name), JSON.stringify(item, null, 2))
   }
 
+  private rawPageRelativePath(article: Article): string {
+    const key = createHash('sha256').update(article.externalId || article.sourceUrl || article.id).digest('hex')
+    return join(article.source.type, article.source.id, `${key}.page.html`)
+  }
+
+  private contentHtmlRelativePath(articleMarkdownPath: string): string {
+    return articleMarkdownPath.endsWith('.md')
+      ? `${articleMarkdownPath.slice(0, -3)}.content.html`
+      : `${articleMarkdownPath}.content.html`
+  }
+
   // —— 文章：文件为源 + 索引 ——
-  saveArticle(article: Article): Article {
+  saveArticle(article: Article, artifacts: ArticleArtifacts = {}): Article {
     const relPath = article.filePath ?? join(article.source.type, article.source.id, `${article.id}.md`)
     const filePath = resolveInside(this.paths.articles, relPath)
     const dir = dirname(filePath)
     mkdirSync(dir, { recursive: true })
-    const withPath = { ...article, filePath: relPath }
+
+    let content = article.content ? { ...article.content } : undefined
+    if (artifacts.pageHtml !== undefined) {
+      if (!content) throw new Error('写入原始页面前必须提供 Article.content 状态')
+      const pageRelPath = this.rawPageRelativePath(article)
+      const pagePath = resolveInside(this.paths.raw, pageRelPath)
+      mkdirSync(dirname(pagePath), { recursive: true })
+      writeFileAtomic(pagePath, artifacts.pageHtml)
+      content = { ...content, pageHtmlPath: pageRelPath }
+    }
+    if (artifacts.contentHtml !== undefined && artifacts.contentHtml.length > 0) {
+      if (!content) throw new Error('写入正文 HTML 前必须提供 Article.content 状态')
+      const contentRelPath = this.contentHtmlRelativePath(relPath)
+      const contentPath = resolveInside(this.paths.articles, contentRelPath)
+      mkdirSync(dirname(contentPath), { recursive: true })
+      writeFileAtomic(contentPath, artifacts.contentHtml)
+      content = { ...content, contentHtmlPath: contentRelPath }
+    }
+
+    const withPath = { ...article, ...(content ? { content } : {}), filePath: relPath }
     writeFileAtomic(filePath, articleToMarkdown(withPath))
     this.upsertIndex(withPath)
     if (withPath.externalId) this.markSeen(withPath.source.id, withPath.externalId, withPath.id)
@@ -227,12 +265,14 @@ export class Store {
   }
 
   /** 首次加入团队时使用：枚举全部本机贡献（含已归档），不受看板 500 条上限影响。 */
-  listContributedArticlesForSync(): Article[] {
+  listContributedArticlesForSync(): ArticleDetail[] {
     this.syncIndexFromFiles(true)
     const rows = this.db
       .prepare('SELECT id FROM articles WHERE contributed_by_me = 1 ORDER BY published_at ASC')
       .all() as Array<{ id: string }>
-    return rows.map((row) => this.getArticle(row.id)).filter((article): article is Article => !!article)
+    return rows
+      .map((row) => this.getArticleDetail(row.id))
+      .filter((article): article is ArticleDetail => !!article)
   }
 
   getArticle(id: string): Article | null {
@@ -248,6 +288,32 @@ export class Store {
     }
     if (!existsSync(full)) return null
     return parseArticleMarkdown(readFileSync(full, 'utf8'), row.file_path)
+  }
+
+  /** 详情 IPC 才读取正文 HTML，文章列表不会携带大体积 sidecar。 */
+  getArticleDetail(id: string): ArticleDetail | null {
+    const article = this.getArticle(id)
+    if (!article) return null
+    const relPath = article.content?.contentHtmlPath
+    if (!relPath) return article
+    try {
+      const full = resolveInside(this.paths.articles, relPath)
+      if (!existsSync(full)) return article
+      return { ...article, contentHtml: readFileSync(full, 'utf8') }
+    } catch {
+      return article
+    }
+  }
+
+  /** Collector 用于判断 frontmatter 指向的本机完整页面是否仍实际存在。 */
+  hasArticlePageHtml(article: Article): boolean {
+    const relPath = article.content?.pageHtmlPath
+    if (!relPath) return false
+    try {
+      return existsSync(resolveInside(this.paths.raw, relPath))
+    } catch {
+      return false
+    }
   }
 
   findArticleByExternalId(sourceId: string, externalId: string): Article | null {
@@ -287,6 +353,14 @@ export class Store {
           continue
         }
         if (existsSync(full)) rmSync(full, { force: true })
+        const contentRelPath = article?.content?.contentHtmlPath
+        if (contentRelPath) {
+          try {
+            rmSync(resolveInside(this.paths.articles, contentRelPath), { force: true })
+          } catch {
+            // 损坏的旧路径不应阻止取消本地关注。
+          }
+        }
       }
       this.db.prepare('DELETE FROM articles WHERE id = ?').run(r.id)
     }
@@ -308,7 +382,8 @@ export class Store {
   private updateArticle(id: string, patch: Pick<Article, 'read'> | Pick<Article, 'archived'>): void {
     const article = this.getArticle(id)
     if (!article) return
-    this.saveArticle({ ...article, ...patch, updatedAt: Date.now() })
+    // read / archived 是纯本机阅读状态，不是团队正文版本；不能推进内容 updatedAt。
+    this.saveArticle({ ...article, ...patch })
   }
 
   unreadCounts(): Record<string, number> {

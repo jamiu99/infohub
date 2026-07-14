@@ -12,7 +12,9 @@ infohub 只负责采集、归一化、索引和看板展示。外部程序通过
 ## 目录
 
 - <code>articles/&lt;sourceType&gt;/&lt;sourceId&gt;/&lt;articleId&gt;.md</code>：文章内容与元数据，数据真相源。
+- <code>articles/&lt;sourceType&gt;/&lt;sourceId&gt;/&lt;articleId&gt;.content.html</code>：可选的公众号正文原始排版 sidecar，与 Markdown 一一对应。
 - <code>raw/&lt;sourceType&gt;/&lt;sourceId&gt;/*.json</code>：采集原始载荷，用于溯源和重放。
+- <code>raw/wechat/&lt;sourceId&gt;/*.page.html</code>：未改写的公众号完整公开页面，用于离线重解析；不作为文章列表接口。
 - <code>sources.json</code>：当前关注的信源。
 - <code>settings.json</code>：infohub 的非敏感本地运行设置，不属于内容接口。
 - <code>index.sqlite</code>：由文章文件重建的查询、状态与去重索引。
@@ -27,14 +29,15 @@ infohub 只负责采集、归一化、索引和看板展示。外部程序通过
 - <code>title</code>、<code>publishedAt</code>、<code>sourceUrl</code>
 - <code>source: { id, type, name }</code>
 - <code>ext</code>：信源特有的原始元数据
+- <code>content</code>（可选）：正文状态、解析器版本、最近尝试时间，以及相对 <code>articles/</code> / <code>raw/</code> 的 HTML 路径
 - <code>team</code>（可选）：团队文章 ID、贡献者和本机是否贡献；不包含登录凭据
 - <code>read</code>、<code>archived</code>、<code>createdAt</code>、<code>updatedAt</code>
 
 ## 消费约定
 
-1. 读取正文与完整元数据时，以 <code>articles/</code> 为准。
+1. 稳定文本正文与完整元数据以 Article Markdown 为准；需要保留公众号排版时，按 <code>content.contentHtmlPath</code> 读取 HTML sidecar。
 2. 批量筛选、排序、去重时可读取 <code>index.sqlite</code>；索引可被删除并从文件重建。
-3. <code>raw/</code> 只用于溯源，不应当作归一化后的文章接口。
+3. <code>raw/</code> 只用于溯源与重新解析，不应当作归一化后的文章接口；完整页面可能包含微信页面运行时内容。
 4. 默认按只读方式消费。外部写入若破坏核心字段，infohub 不保证兼容。
 5. 时间均为 UTC 毫秒时间戳，展示时再转换为本地时区。
 

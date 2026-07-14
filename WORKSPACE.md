@@ -4,7 +4,7 @@
 
 infohub 是 **数据采集 + 文件归档 + SQLite 索引 + 快速看板**。外部工具可读取数据，但项目不直接集成 AI、模型、CLI、Skill 或 Agent 工作流。
 
-当前为 `v0.2.1` 团队共享 MVP 与阅读界面整理阶段。桌面 preload/IPC 桥、数据一致性、内容渲染、传统二维码登录、用户确认式更新、可配置小时上限、限流观测、文件型团队同步、独立设置弹窗和可调三栏已完成首轮实现；默认团队 HTTPS 健康入口已经可用，接下来聚焦多设备/Windows 验收、服务备份监控、桌面采集任务分配入口和凭据告警。唯一进度入口是 [docs/overview.md](docs/overview.md)。
+当前为 `v0.3.0` 发布准备阶段。桌面 preload/IPC 桥、数据一致性、传统二维码登录、用户确认式更新、可配置小时上限、限流观测、文件型团队同步、独立设置弹窗和可调三栏已完成首轮实现；微信公众号经典图文页已同时保存 Markdown、正文 HTML 与完整页面 HTML，并在看板默认展示原始排版。团队协议硬切 `/api/v2`，正文 HTML 直接进入同步 DTO，不做能力协商或 v1 fallback，也不兼容旧桌面端/旧服务端；升级必须先服务端、后全部桌面端。默认团队 HTTPS 健康入口已经可用，接下来聚焦 SSR/动态微信内容、多设备/Windows 验收、服务备份监控、桌面采集任务分配入口和凭据告警。唯一进度入口是 [docs/overview.md](docs/overview.md)。
 
 ## 目录速览
 
@@ -18,8 +18,8 @@ infohub/
 │   ├── settings.ts         # 非敏感运行设置
 │   ├── team/               # outbox、HTTPS 同步与远端文章合并
 │   ├── ingest/             # 微信/RSS Adapter 与网络
-│   ├── process/            # 归一化和正文转换
-│   └── store/              # 文件与 SQLite
+│   ├── process/            # 归一化、HTML 树解析和 Markdown 投影
+│   └── store/              # Markdown/HTML 文件与 SQLite
 ├── src/shared/             # 数据、IPC、URL 契约
 ├── test/                   # node:test 自动化测试
 ├── scripts/                # 真机探测脚本（部分待修）
@@ -35,13 +35,14 @@ infohub/
 3. [architecture.md](docs/architecture.md)：前后端进程边界与数据流。
 4. [dev-log.md](docs/dev-log.md)：代码地图、验证命令、已知问题。
 5. [team-sharing.md](docs/team-sharing.md)：团队同步、可信入组和采集分配。
-6. 按需阅读 `contract / ingest / process / storage`。
+6. [wechat-content.md](docs/wechat-content.md)：公众号页面形态、内容类型、参考实现与资源策略。
+7. 按需阅读 `contract / ingest / process / storage`。
 
 ## 工程约束
 
 - Electron main 与 renderer 通过类型化 IPC 通信；renderer 不直接访问文件、SQLite、凭据或采集接口。
 - SQLite 只用 Node 内置 `node:sqlite`，JavaScript 包管理只用 pnpm。
-- 文章文件是真相源，SQLite 是可重建加速层。
+- Article Markdown 与其内容 sidecar 是内容真相源，SQLite 是可重建加速层。
 - 团队同步必须在本地落盘后进入 outbox；网络失败不得回滚或阻塞采集。
 - 默认不自动采集；所有公众号请求全局串行并使用保守限流。
 - 不加入任何模型依赖、AI CLI 驱动、Skill 安装或 Agent 调度。

@@ -1,6 +1,8 @@
-import type { Article, Source } from './contract'
+import type { Article, ArticleDetail, Source } from './contract'
 
 export const DEFAULT_TEAM_SERVER_URL = 'https://home.agent-wiki.cn:18038'
+/** 客户端 push JSON 请求体预算；服务端限制应更高（当前配套 API v2 为 16 MiB）。 */
+export const TEAM_PUSH_BODY_BUDGET_BYTES = 12 * 1024 * 1024
 
 export function normalizeRssFeedUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -127,6 +129,8 @@ export interface TeamArticlePayload {
   externalId: string
   title: string
   body: string
+  /** 有正文 HTML 时直接发送；完整 page HTML 永不团队同步。 */
+  contentHtml?: string
   publishedAt: number
   sourceUrl: string
   ext?: Record<string, unknown>
@@ -150,7 +154,7 @@ export interface TeamArticleRecord {
   remoteId: string
   source: TeamSourcePayload & { id: string }
   article: Required<Pick<TeamArticlePayload, 'externalId' | 'title' | 'body' | 'publishedAt' | 'sourceUrl'>> &
-    Pick<TeamArticlePayload, 'ext' | 'createdAt' | 'updatedAt'>
+    Pick<TeamArticlePayload, 'contentHtml' | 'ext' | 'createdAt' | 'updatedAt'>
   contributors: TeamContributor[]
 }
 
@@ -207,8 +211,10 @@ function safeExt(sourceType: string, ext: Record<string, unknown>): Record<strin
   return result
 }
 
-export function toTeamArticlePayload(article: Article): TeamArticlePayload {
-  return {
+export function toTeamArticlePayload(
+  article: Article | ArticleDetail
+): TeamArticlePayload {
+  const payload: TeamArticlePayload = {
     externalId: article.externalId,
     title: article.title,
     body: article.body,
@@ -218,6 +224,14 @@ export function toTeamArticlePayload(article: Article): TeamArticlePayload {
     createdAt: article.createdAt,
     updatedAt: article.updatedAt
   }
+  if (
+    'contentHtml' in article &&
+    typeof article.contentHtml === 'string' &&
+    article.contentHtml.length > 0
+  ) {
+    payload.contentHtml = article.contentHtml
+  }
+  return payload
 }
 
 export function validateTeamServerUrl(value: unknown): string {

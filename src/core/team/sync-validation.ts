@@ -1,8 +1,13 @@
-import type { TeamArticleUpload } from '../../shared/team'
-import { shareableRssFeedUrl } from '../../shared/team'
+import {
+  shareableRssFeedUrl,
+  TEAM_PUSH_BODY_BUDGET_BYTES,
+  type TeamArticleUpload
+} from '../../shared/team'
 
 export const TEAM_MAX_ARTICLE_BODY_BYTES = 2 * 1024 * 1024
+export const TEAM_MAX_ARTICLE_HTML_BYTES = 4 * 1024 * 1024
 const TEAM_MAX_EXT_BYTES = 128 * 1024
+const LONG_JSON_ESCAPE_CONTROLS = /[\u0000-\u0007\u000b\u000e-\u001f]/
 
 const FORBIDDEN_KEYS = [
   'cookie',
@@ -51,7 +56,7 @@ function safeJson(value: unknown, depth = 0): boolean {
   })
 }
 
-/** 与服务端 v1 allowlist 对齐；返回原因表示该事件必须本地隔离，不能反复堵住队列。 */
+/** 与服务端 API v2 allowlist 对齐；返回原因表示该事件必须本地隔离，不能反复堵住队列。 */
 export function teamUploadValidationError(value: unknown): string | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return '事件不是对象'
   const item = value as Record<string, unknown>
@@ -99,6 +104,7 @@ export function teamUploadValidationError(value: unknown): string | null {
       'externalId',
       'title',
       'body',
+      'contentHtml',
       'publishedAt',
       'sourceUrl',
       'ext',
@@ -114,6 +120,18 @@ export function teamUploadValidationError(value: unknown): string | null {
   if (Buffer.byteLength(article.body, 'utf8') > TEAM_MAX_ARTICLE_BODY_BYTES) {
     return 'Article 正文超过 2 MiB'
   }
+  if (LONG_JSON_ESCAPE_CONTROLS.test(article.body)) {
+    return 'Article 正文包含不支持的控制字符'
+  }
+  if (article.contentHtml !== undefined) {
+    if (typeof article.contentHtml !== 'string') return 'Article 原始排版 HTML 不是字符串'
+    if (Buffer.byteLength(article.contentHtml, 'utf8') > TEAM_MAX_ARTICLE_HTML_BYTES) {
+      return 'Article 原始排版 HTML 超过 4 MiB'
+    }
+    if (LONG_JSON_ESCAPE_CONTROLS.test(article.contentHtml)) {
+      return 'Article 原始排版 HTML 包含不支持的控制字符'
+    }
+  }
   if (!safeTimestamp(article.publishedAt)) return 'Article publishedAt 无效'
   if (!safeString(article.sourceUrl, 4096, true)) return 'Article sourceUrl 过长'
   if (article.createdAt !== undefined && !safeTimestamp(article.createdAt)) {
@@ -128,6 +146,12 @@ export function teamUploadValidationError(value: unknown): string | null {
   }
   if (Buffer.byteLength(JSON.stringify(ext), 'utf8') > TEAM_MAX_EXT_BYTES) {
     return 'Article ext 超过 128 KiB'
+  }
+  if (
+    Buffer.byteLength(JSON.stringify({ items: [item] }), 'utf8') >
+    TEAM_PUSH_BODY_BUDGET_BYTES
+  ) {
+    return '团队同步事件转为 JSON 后超过 12 MiB（正文可能包含大量需要转义的字符）'
   }
   return null
 }
