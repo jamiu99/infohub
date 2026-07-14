@@ -12,6 +12,7 @@ permissions:
 jobs:
   build-windows:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -47,6 +48,11 @@ jobs:
 
       - name: Verify desktop bundle
         run: pnpm verify:bundle
+
+      # pnpm 10 默认不执行 Electron 的下载脚本；显式安装与当前 runner
+      # 平台匹配的运行时，随后才能真正启动隐藏桌面进程。
+      - name: Install Electron runtime for smoke test
+        run: pnpm exec install-electron
 
       # Windows runner 可直接启动隐藏 Electron；在发布安装包前验证真实 preload/IPC 桥，
       # 避免只靠静态 bundle 检查漏掉桌面运行时回归。

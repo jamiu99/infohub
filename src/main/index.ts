@@ -121,7 +121,15 @@ function createWindow(): void {
           exitCode = 1
           console.error('Desktop bridge smoke cleanup failed:', error)
         } finally {
-          if (smokeDataPath) rmSync(smokeDataPath, { recursive: true, force: true })
+          // Windows 上 Chromium 可能在进程退出前仍短暂持有 userData 文件锁；
+          // 烟测目录清理是 best-effort，不能因此阻止 Electron 返回测试结果。
+          if (smokeDataPath) {
+            try {
+              rmSync(smokeDataPath, { recursive: true, force: true })
+            } catch (error) {
+              console.warn('Desktop bridge smoke temp cleanup skipped:', error)
+            }
+          }
           app.exit(exitCode)
         }
       })()
