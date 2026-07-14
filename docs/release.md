@@ -6,11 +6,12 @@
 
 2026-07-15 的发布基线：
 
-- 当前待发布源码版本为 `v0.3.0`，发布说明见 [releases/v0.3.0.md](releases/v0.3.0.md)。
-- 上个正式 GitHub Release 是 `v0.2.1`；`v0.1.2` 因 preload 回归已取消并转为 draft。
+- 当前源码版本为 `v0.3.1`，发布说明见 [releases/v0.3.1.md](releases/v0.3.1.md)。
+- 上个正式 GitHub Release 是 `v0.3.0`；`v0.1.2` 因 preload 回归已取消并转为 draft。
 - Release workflow 已在 `v0.1.1` 补齐版本校验、typecheck 和核心测试。
 - 尚无 Windows 安装人工验收或跨版本自动更新验收记录，不能把“存在更新代码”表述为“升级闭环已验收”。
 - `v0.3.0` 的团队同步协议包含正文 HTML并硬切 `/api/v2`，不提供 v1 fallback；不支持旧桌面端、旧服务端与新版本混用。
+- `v0.3.1` 的 Windows EXE、快捷方式与 NSIS 安装/卸载界面使用 `resources/branding` 中的项目 logo；发布前 bundle 门禁会检查图片与打包配置。
 
 仓库和 Release 当前是 **Public**，`electron-updater` 可直接读取公开 Release，无需客户端 token。
 
@@ -35,17 +36,17 @@ checkout
 
 ## 发布下一版本
 
-不要复用旧 tag。例如发布 `0.3.0`：
+不要复用旧 tag。例如发布 `0.3.1`：
 
 ```bash
 # 1. 更新版本、文档和 release notes
-pnpm version 0.3.0 --no-git-tag-version
+pnpm version 0.3.1 --no-git-tag-version
 ./verify.sh
 
 # 2. 确认工作树、提交和远端正确后再创建 tag
-git tag v0.3.0
+git tag v0.3.1
 git push origin main
-git push origin v0.3.0
+git push origin v0.3.1
 ```
 
 约束：`package.json.version` 必须与 tag 去掉 `v` 后完全一致；Release workflow 会自动阻断不一致发布。
@@ -79,6 +80,7 @@ Release notes 必须明确数据格式变化、迁移方式与已知限制；如
 ## Windows 安装注意
 
 - NSIS 为 x64、当前用户安装、可选择目录、创建桌面和开始菜单快捷方式。
+- `resources/branding/infohub-logo-concept-v1.png` 保留为品牌概念源图；Windows 应用 EXE、快捷方式、安装器与卸载器统一使用紧凑透明的 `resources/branding/infohub-icon-v1.png`，electron-builder 在 Windows 打包时转换为 ICO。
 - 暂无代码签名，SmartScreen 会显示未知发行者；个人试用可人工确认，公开分发应评估签名。
 - 正式 Windows 包由 `windows-latest` 构建；Linux/WSL 本地交叉打包不作为发布依据。
 

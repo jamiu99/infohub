@@ -25,7 +25,7 @@ infohub 只做四件事：
 - Markdown/RSS 内容继续使用 URL 白名单、DOMPurify、CSP 与 Electron renderer sandbox；官方 `mp.weixin.qq.com` 正文 HTML 按可信来源直接在隔离 iframe 中呈现。
 - Windows NSIS Release 与用户确认式自动更新。
 
-当前源码版本是 `v0.3.0`。桌面 preload/IPC 桥、核心数据链路、传统“检查—确认—下载—重启”更新流程、公众号二维码登录、可配置采集配额、团队共享 MVP，以及微信经典图文的 Markdown、正文 HTML、完整页面 HTML 三份归档已就绪。`v0.3.0` 的团队正文 HTML 同步硬切 `/api/v2`，不提供 v1 fallback，也不支持旧桌面端或旧服务端混用；自托管团队必须先升级服务端，再升级全部桌面端。SSR/复杂动态微信内容、桌面全流程和多设备同步仍需继续验收，详见 [docs/overview.md](docs/overview.md) 与 [v0.3.0 发布说明](docs/releases/v0.3.0.md)。
+当前源码版本是 `v0.3.1`。Windows 应用、安装器、卸载器与快捷方式已统一使用项目 logo；桌面 preload/IPC 桥、核心数据链路、传统“检查—确认—下载—重启”更新流程、公众号二维码登录、可配置采集配额、团队共享 MVP，以及微信经典图文的 Markdown、正文 HTML、完整页面 HTML 三份归档已就绪。`v0.3.0` 起团队正文 HTML 同步硬切 `/api/v2`，不提供 v1 fallback，也不支持旧桌面端或旧服务端混用；自托管团队必须先升级服务端，再升级全部桌面端。SSR/复杂动态微信内容、桌面全流程和多设备同步仍需继续验收，详见 [docs/overview.md](docs/overview.md) 与 [v0.3.1 发布说明](docs/releases/v0.3.1.md)。
 
 ## 开发与验证
 

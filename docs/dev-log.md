@@ -2,7 +2,7 @@
 
 > 上级：[overview.md](overview.md) · 数据接口：[data-interface.md](data-interface.md)
 
-最后更新：2026-07-15，v0.3.0 微信经典图文三份归档、原始排版与破坏性团队 HTML 协议。
+最后更新：2026-07-15，v0.3.1 Windows 安装包品牌图标。
 
 ## 代码地图
 
@@ -26,6 +26,12 @@
 | 更新/发布 | `src/main/update-controller.ts`、`src/main/updater.ts`、`electron-builder.yml`、`.github/workflows/release.yml` |
 
 仓库已没有 AI CLI、Skill 安装器或 `core/agent` 目录。
+
+## Windows 品牌图标（2026-07-15）
+
+- 将 `resources/branding/infohub-logo-concept-v1.png` 作为品牌概念源图纳入仓库，并派生紧凑透明的 `resources/branding/infohub-icon-v1.png` 作为 Windows 应用图标。
+- 派生图使用内置 imagegen 编辑和本地 chroma-key 去背流程生成；electron-builder 在打包时从 1254×1254 RGBA PNG 生成 ICO，同一图标用于应用 EXE、桌面/开始菜单快捷方式，以及 NSIS 安装和卸载界面。
+- `pnpm verify:bundle` 会检查图标存在、为至少 512×512 的方形 RGBA PNG，且 Windows 打包配置明确引用它，防止后续版本退回 Electron 默认图标。
 
 ## 微信公众号 HTML 正文实现（2026-07-14）
 

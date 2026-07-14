@@ -3,11 +3,14 @@ productName: infohub
 # 打包产物 & 元数据
 directories:
   output: release
+  # Windows 应用与安装器图标的源文件；electron-builder 会转换为 ICO。
+  buildResources: resources/branding
 # 只打包构建产物与运行时依赖（electron-vite 输出在 out/）
 files:
   - out/**/*
   - package.json
 win:
+  icon: infohub-icon-v1.png
   target:
     - target: nsis
       arch: [x64]
