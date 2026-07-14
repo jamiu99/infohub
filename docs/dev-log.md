@@ -2,19 +2,19 @@
 
 > 上级：[overview.md](overview.md) · 数据接口：[data-interface.md](data-interface.md)
 
-最后更新：2026-07-15，v0.3.1 Windows 安装包品牌图标。
+最后更新：2026-07-15，v0.4.0 数据生命周期、图片消息与自动采集发布基线。
 
 ## 代码地图
 
 | 领域 | 实现 |
 |------|------|
-| 共享契约 | `src/shared/contract.ts`、`ipc.ts`、`wechat.ts`、`team.ts`、`url.ts` |
+| 共享契约 | `src/shared/contract.ts`、`ipc.ts`、`collection.ts`、`maintenance.ts`、`data-library.ts`、`wechat.ts`、`team.ts`、`url.ts` |
 | App 入口 | `src/main/index.ts` |
 | 后端装配/IPC | `src/main/service.ts` |
-| 数据目录说明 | `src/main/data-guide.ts` |
+| 数据资料库 | `src/main/data-guide.ts`、`data-location.ts`、`data-migration.ts`、`data-startup.ts`、`data-library-controller.ts`、`src/core/paths.ts` |
 | 微信扫码/凭据 | `src/main/wechat-login.ts`、`secrets.ts`、`team-secrets.ts` |
-| 采集编排/账号/限流 | `src/core/collect/collector.ts`、`account-pool.ts`、`rate-limit.ts` |
-| 非敏感运行设置 | `src/core/settings.ts`、`data/settings.json` |
+| 采集编排/账号/限流 | `src/core/collect/collector.ts`、`collection-runner.ts`、`auto-collect-scheduler.ts`、`wechat-request-gate.ts`、`account-pool.ts`、`rate-limit.ts` |
+| 非敏感运行设置 | `src/core/settings.ts`、固定私有 `state/settings.json` |
 | Adapter | `src/core/ingest/adapter.ts`、`wechat-adapter.ts`、`rss-adapter.ts` |
 | 微信/RSS 协议 | `src/core/ingest/wechat.ts`、`rss.ts`、`net.ts` |
 | 归一化/正文 | `src/core/process/normalize.ts`、`wechat.ts`、`rss.ts`、`content.ts` |
@@ -27,27 +27,50 @@
 
 仓库已没有 AI CLI、Skill 安装器或 `core/agent` 目录。
 
+## v0.4 数据生命周期与采集维护（2026-07-15）
+
+- 微信 parser v2 在经典 `#js_content` 之外支持 `item_show_type=8` 图片消息，安全读取 `window.cgiDataNew.picture_page_info_list` 和静态 `window.picture_page_info_list`；只取对象直接 `cdn_url/width/height` 与图注，不执行脚本、不把 watermark/分享封面当正文。
+- 列表 Raw 改为 `<external-id-sha>/<content-sha>.json`，完整页面改为 `pages/<content-sha>.page.html`；两者只创建不覆盖，不同响应并存。Article 新增 `lastAttemptPageHtmlPath`，失败重抓可保留诊断页而不替换成功正文/页面。
+- Store 增加维护专用的全量文章枚举和完整页面读取，不受看板 500 条限制；维护语义拆成已有快照的离线重新解析与原 URL 的网络重新抓取。
+- 自动采集设置默认关闭，周期范围 60～10080 分钟、推荐 240 分钟。Scheduler 用单次 timer、每轮结束再排下一轮；休眠/离线不追赶。Runner 统一手动/自动批次互斥、最久未采集优先和 `no_account` 后只跳过剩余微信来源。
+- 微信公众号后台的搜索/列表请求跨来源共用请求门：正常至少 10 秒，换号重试至少 15 秒；公开文章正文请求使用独立的 2 秒串行请求门；账号小时配额继续独立生效。
+- 数据路径拆成用户可迁移资料库与固定私有状态。bootstrap 在 `userData/state/data-location.json`；迁移要求空目标，在目标盘 staging 复制并做 SHA-256 校验，成功后切换指针，源目录始终保留。设置、凭据、团队队列/cursor 和 Chromium 分区不随资料库迁移。
+- 外部 AI/Agent 只读 `articles/`，产物写 `outputs/<producer>/`；`raw/` 与 Article/sidecar 均不允许外部回写。
+- 新增核心单测覆盖图片消息静态解析、内容寻址快照、失败尝试保留、维护全量枚举、自动 timer/批次行为、跨来源请求间隔、资料库 bootstrap 与迁移故障路径。Service/IPC 已接通并通过 Electron smoke；Windows 跨盘迁移和真实账号多周期仍待人工验收。
+
+## v0.4.0 发布门禁
+
+| 命令 | 结果 |
+|------|------|
+| `pnpm typecheck` | ✅ main/preload/core/shared + renderer 通过 |
+| `pnpm test:core` | ✅ 151/151，0 fail |
+| `pnpm build` / `pnpm verify:bundle` | ✅ 生产构建、CJS preload、项目 logo 契约通过 |
+| `pnpm smoke:desktop` | ✅ 真实 Electron 中账号、自动采集、资料库 IPC、`srcdoc` iframe 与更新菜单通过 |
+| `git diff --check` | ✅ |
+
 ## Windows 品牌图标（2026-07-15）
 
 - 将 `resources/branding/infohub-logo-concept-v1.png` 作为品牌概念源图纳入仓库，并派生紧凑透明的 `resources/branding/infohub-icon-v1.png` 作为 Windows 应用图标。
 - 派生图使用内置 imagegen 编辑和本地 chroma-key 去背流程生成；electron-builder 在打包时从 1254×1254 RGBA PNG 生成 ICO，同一图标用于应用 EXE、桌面/开始菜单快捷方式，以及 NSIS 安装和卸载界面。
 - `pnpm verify:bundle` 会检查图标存在、为至少 512×512 的方形 RGBA PNG，且 Windows 打包配置明确引用它，防止后续版本退回 Electron 默认图标。
 
-## 微信公众号 HTML 正文实现（2026-07-14）
+## 微信公众号 HTML 正文 v1（2026-07-14）
 
 - 只读审阅 `refs/NewsCrawler` 的公众号抓取、普通 DOM/SSR 解析、内容模型、图片下载和 Markdown 输出；未修改参考仓库。
 - 决定只借鉴分层、双解析路径、有序内容块和图片下载防护，不复制 GPLv3 源码、不引入 Python sidecar。
-- 经典图文改用 `parse5` 树定位 `#js_content`，同时保存 Markdown、保留外层/内联样式的 `.content.html`，以及 SHA-256 命名的未改写 `.page.html`。
+- 经典图文改用 `parse5` 树定位 `#js_content`，同时保存 Markdown、内容寻址且由 Article 指向的正文 HTML sidecar，以及 SHA-256 命名的未改写 `.page.html`。
 - 展示 sidecar 提升 `data-src/data-original/data-backsrc`、补绝对 URL；原始页面不改写。正文 HTML/Markdown 不压缩、不使用 Base64。
 - Article frontmatter 增加内容状态、解析器版本、sidecar 路径、尝试/成功时间和错误；`seen_items` 命中后仍会为失败、正文 HTML/本机完整页面路径或文件缺失、或旧版本产物重试，失败不覆盖已有完整正文。
 - IPC 改成列表不载 HTML、详情按需读取；微信详情默认 iframe 原始排版，可切换 Markdown 阅读版，长正文具备独立滚动。
 - 团队同步在 Article 有内容时直接携带 `contentHtml`；只同步 Markdown、正文 HTML 和 URL，不上传完整页面/Raw/凭据。
 - 测试期团队协议硬切 `/api/v2`，不维护 v1 fallback 或能力协商；同步先 status 后 push，push 按 12 MiB 实际 JSON 字节预算分批，pull 每页 50 条。v0.3.0 必须先升级服务端，再升级全部桌面端，混合版本不受支持。
 - 阅读/归档写回 Article 文件但不推进内容 `updatedAt`，避免状态操作改变团队 payload 或确定性 eventId。
-- 新旧 SSR 图片页、风控/验证页、语义内容块与依赖脚本的动态组件仍属于后续。
+- 该版本当时尚未覆盖图片消息；2026-07-15 的 parser v2 已补 `picture_page_info_list`，旧 `__QMTPL_SSR_DATA__`、风控/验证页、语义内容块与依赖脚本的动态组件仍属于后续。
 - 详细实施依据见 [wechat-content.md](wechat-content.md)。
 
-## 2026-07-14 自动化基线
+## v0.3.1 发布自动化基线
+
+以下是已发布旧版本的门禁快照，不代表 v0.4.0 当前测试总数：
 
 | 命令 | 结果 |
 |------|------|
@@ -61,7 +84,7 @@
 | GitHub Release workflow | ✅，Windows 打包前校验版本并重跑完整门禁 |
 | `./verify.sh` | ✅，本地与 `main`/PR CI 共用 |
 
-76 项测试分布：
+当时的核心测试主要分布：
 
 - 账号池、可配置配额与限流观测：12。
 - 设置文件加载、原子保存与边界校验：3。
@@ -159,18 +182,20 @@ sudo apt-get install -y libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libgbm1 
 1. 后台采集错误和 quota waiting 缺明确前端反馈。
 2. 微信账号池在 safeStorage 不可用时仍静默明文，缺格式版本、告警与迁移；团队设备 token 已改为拒绝明文保存。
 3. 普通 push/PR 与 Release 已有门禁，但 GitHub 分支保护规则尚未核验。
-4. sandbox preload 已做 Linux Electron smoke test；CSP 图片、`v0.3.0` 二维码、配额/团队界面、三栏拖动、原生更新对话框和系统外链仍需真实 Windows 点击验收。
+4. sandbox preload 已做 Linux Electron smoke test；CSP 图片、当前版本二维码、配额/团队界面、三栏拖动、原生更新对话框和系统外链仍需真实 Windows 点击验收。
 5. 两个 probe 脚本失效，尚未纳入 `verify.sh`。
 6. 默认团队 HTTPS `/healthz` 已验证可用，但进程守护/备份/外部监控和两设备历史补传、断网恢复、contribution 合并仍需真实环境验证。
-7. 微信经典 HTML 已进入基线；新旧 SSR 图片页、风控/验证页、动态组件和历史 `.page.html` 批量重放尚未实现。
+7. 图片消息静态列表已进入 v0.4.0；旧 `__QMTPL_SSR_DATA__`、风控/验证页和动态组件仍未覆盖。
+8. 自定义资料库、离线/网络维护和自动采集已完成 Service/IPC、设置 UI 与安全重启；仍需 Windows 跨盘和多周期真实账号验收。
 
 ## 仍需补的测试
 
 - Store 故障注入、损坏文件隔离、大数据量同步性能和 Windows 原子替换。
-- WechatAdapter 换号、分页、错误状态和请求间隔（fake fetch，不碰真实账号）。
-- Service IPC 参数校验、后台任务错误事件和 source 删除。
+- 自动采集多个真实周期、系统休眠恢复和退出时在途任务收口。
+- 自定义资料库真实跨盘迁移、断电恢复、缺盘启动和旧 v0.3.x 私有状态导入。
+- Service 维护 IPC 参数校验、批量错误摘要、迁移排他与 source 删除。
 - renderer 组件交互/E2E。
 - CSP/sandbox 的真实 Electron 运行验收。
-- 真实微信经典图文 iframe、懒加载媒体、长文、阅读版切换，以及 SSR/异常页 fixture。
+- 真实微信经典图文/图片消息 iframe、懒加载媒体、长文、阅读版切换，以及旧 SSR/异常页 fixture。
 - Windows 安装和双版本自动更新。
 - 已隔离事件的修复/重试 UI、cursor 故障、两设备并发上传和 assignment/lease 桌面集成。

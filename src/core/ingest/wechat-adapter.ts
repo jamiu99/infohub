@@ -5,20 +5,48 @@ import type { SourceAdapter, DiscoverResult, FetchOutcome } from './adapter'
 import type { AccountPool } from '../collect/account-pool'
 import { RATE_LIMIT } from '../collect/rate-limit'
 import { searchBiz, listArticlesPage, toRawItem } from './wechat'
-import { fetchArticleContent, WECHAT_CONTENT_PARSER_VERSION } from '../process/content'
+import {
+  fetchArticleContent,
+  parseWechatArticleContent,
+  WECHAT_CONTENT_PARSER_VERSION
+} from '../process/content'
+import { WechatRequestGate } from '../collect/wechat-request-gate'
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+
+interface WechatAdapterOptions {
+  sleep?: (ms: number) => Promise<void>
+  requestGate?: WechatRequestGate
+  contentRequestGate?: WechatRequestGate
+  searchBiz?: typeof searchBiz
+  listArticlesPage?: typeof listArticlesPage
+  fetchArticleContent?: typeof fetchArticleContent
+}
 
 export class WechatAdapter implements SourceAdapter {
   readonly type = 'wechat'
   readonly contentParserVersion = WECHAT_CONTENT_PARSER_VERSION
 
-  private wait: (ms: number) => Promise<void>
+  private requestGate: WechatRequestGate
+  private contentRequestGate: WechatRequestGate
+  private searchBiz: typeof searchBiz
+  private listArticlesPage: typeof listArticlesPage
+  private fetchArticleContent: typeof fetchArticleContent
+
   constructor(
     private pool: AccountPool,
-    opts: { sleep?: (ms: number) => Promise<void> } = {}
+    opts: WechatAdapterOptions = {}
   ) {
-    this.wait = opts.sleep ?? sleep
+    const wait = opts.sleep ?? sleep
+    this.requestGate =
+      opts.requestGate ??
+      new WechatRequestGate({ intervalMs: RATE_LIMIT.requestIntervalMs, sleep: wait })
+    this.contentRequestGate =
+      opts.contentRequestGate ??
+      new WechatRequestGate({ intervalMs: RATE_LIMIT.publicContentIntervalMs, sleep: wait })
+    this.searchBiz = opts.searchBiz ?? searchBiz
+    this.listArticlesPage = opts.listArticlesPage ?? listArticlesPage
+    this.fetchArticleContent = opts.fetchArticleContent ?? fetchArticleContent
   }
 
   readiness(): { ready: boolean; reason?: string } {
@@ -29,7 +57,12 @@ export class WechatAdapter implements SourceAdapter {
 
   /** 公众号列表只给摘要；详情页同时保留 page HTML、正文 HTML 和 Markdown。 */
   enrichContent(sourceUrl: string) {
-    return fetchArticleContent(sourceUrl)
+    return this.contentRequestGate.run(() => this.fetchArticleContent(sourceUrl))
+  }
+
+  /** 使用本机不可变 page HTML 快照离线重建正文投影。 */
+  parseContentPage(pageHtml: string, sourceUrl: string) {
+    return parseWechatArticleContent(pageHtml, sourceUrl)
   }
 
   /** 搜公众号（换号重试） */
@@ -37,7 +70,10 @@ export class WechatAdapter implements SourceAdapter {
     for (let attempt = 0; attempt < 3; attempt++) {
       const account = this.pool.pick()
       if (!account) return []
-      const r = await searchBiz(account, query)
+      const r = await this.requestGate.run(
+        () => this.searchBiz(account, query),
+        attempt === 0 ? RATE_LIMIT.requestIntervalMs : RATE_LIMIT.accountIntervalMs
+      )
       this.pool.noteRequest(account.id)
       if (r.ok) {
         return r.data.map((it) => ({
@@ -48,7 +84,6 @@ export class WechatAdapter implements SourceAdapter {
       }
       const { retry } = this.pool.handleResult(account.id, r)
       if (!retry) return []
-      await this.wait(RATE_LIMIT.accountIntervalMs)
     }
     return []
   }
@@ -61,19 +96,24 @@ export class WechatAdapter implements SourceAdapter {
     const maxPages = opts.maxPages ?? RATE_LIMIT.incrementalMaxPages
     const items: RawItem[] = []
 
+    let nextRequestInterval: number = RATE_LIMIT.requestIntervalMs
     for (let page = 0; page < maxPages; page++) {
       const account = this.pool.pick()
       if (!account) return { items, status: 'no_account' }
 
       const begin = page * RATE_LIMIT.pageSize
-      const r = await listArticlesPage(account, fakeid, begin, RATE_LIMIT.pageSize)
+      const r = await this.requestGate.run(
+        () => this.listArticlesPage(account, fakeid, begin, RATE_LIMIT.pageSize),
+        nextRequestInterval
+      )
+      nextRequestInterval = RATE_LIMIT.requestIntervalMs
       this.pool.noteRequest(account.id)
 
       if (!r.ok) {
         const { retry } = this.pool.handleResult(account.id, r)
         if (retry) {
           page-- // 换号重试本页
-          await this.wait(RATE_LIMIT.accountIntervalMs)
+          nextRequestInterval = RATE_LIMIT.accountIntervalMs
           continue
         }
         const status = r.reason === 'freq_control' ? 'rate_limited' : r.reason === 'expired' ? 'auth_expired' : 'error'
@@ -86,7 +126,6 @@ export class WechatAdapter implements SourceAdapter {
         if (raw.externalId) items.push(raw)
       }
       if (r.data.items.length < RATE_LIMIT.pageSize) break
-      await this.wait(RATE_LIMIT.requestIntervalMs) // 同账号翻页间隔
     }
     return { items, status: 'ok' }
   }

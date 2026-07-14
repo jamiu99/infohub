@@ -78,7 +78,12 @@ function createNativeUi(): UpdateUi {
   }
 }
 
-export function initUpdater(): UpdateController {
+export interface UpdaterOptions {
+  /** 自动更新退出前与普通退出共用的数据收尾门。 */
+  beforeInstall?: () => Promise<void>
+}
+
+export function initUpdater(options: UpdaterOptions = {}): UpdateController {
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
 
@@ -90,7 +95,10 @@ export function initUpdater(): UpdateController {
       download: async () => {
         await autoUpdater.downloadUpdate()
       },
-      install: () => autoUpdater.quitAndInstall(false, true)
+      install: async () => {
+        await options.beforeInstall?.()
+        autoUpdater.quitAndInstall(false, true)
+      }
     },
     createNativeUi(),
     app.getVersion()

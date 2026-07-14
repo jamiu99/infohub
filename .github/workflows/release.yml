@@ -48,6 +48,11 @@ jobs:
       - name: Verify desktop bundle
         run: pnpm verify:bundle
 
+      # Windows runner 可直接启动隐藏 Electron；在发布安装包前验证真实 preload/IPC 桥，
+      # 避免只靠静态 bundle 检查漏掉桌面运行时回归。
+      - name: Smoke test desktop preload and IPC
+        run: pnpm smoke:desktop
+
       - name: Package & publish (electron-builder)
         run: pnpm exec electron-builder --win --publish always
         env:

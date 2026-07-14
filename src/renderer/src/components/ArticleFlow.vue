@@ -8,6 +8,9 @@ const articles = computed(() => store.state.articles)
 const selectedId = computed(() => store.state.selectedArticle?.id)
 const progress = computed(() => store.state.progress)
 const busy = computed(() => progress.value.phase !== 'idle')
+const busyLabel = computed(() =>
+  progress.value.origin === 'maintenance' ? '处理中…' : '采集中…'
+)
 const teamAvailable = computed(() => Boolean(store.state.team?.device))
 
 const title = computed(() => {
@@ -27,7 +30,7 @@ function refresh(): void {
       <div class="title-row">
         <h2 :title="title">{{ title }}</h2>
         <button :disabled="busy" class="refresh" @click="refresh">
-          {{ busy ? '采集中…' : '⟳ 刷新' }}
+          {{ busy ? busyLabel : '⟳ 刷新' }}
         </button>
       </div>
       <div class="tools">
@@ -59,7 +62,8 @@ function refresh(): void {
 
     <div v-if="progress.phase !== 'idle'" class="progress">
       <template v-if="progress.phase === 'polling'">
-        正在采集 {{ progress.currentSource }}…（剩 {{ progress.queued }}）
+        {{ progress.origin === 'maintenance' ? '正在重新处理' : progress.origin === 'automatic' ? '正在自动采集' : '正在采集' }}
+        {{ progress.currentSource }}…（剩 {{ progress.queued }}）
       </template>
       <template v-else-if="progress.phase === 'waiting_quota'">
         ⏸ 配额用尽，等待恢复至 {{ clockTime(progress.waitingUntil) }}（剩 {{ progress.queued }} 个待采）

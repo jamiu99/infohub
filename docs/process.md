@@ -17,6 +17,7 @@ RawItem
   │
   ├─ 3. 正文补全
   │     wechat：抓 sourceUrl → parse5 树定位 #js_content
+  │             ├─ 图片消息：静态读取 picture_page_info_list 主图与文案
   │             ├─ 未改写完整 page HTML
   │             ├─ 可展示 content HTML（保留外层/内联样式）
   │             └─ 轻量 HTML→Markdown 阅读投影
@@ -40,7 +41,7 @@ RawItem
 | publishedAt（UTC ms） | ✅，微信秒转毫秒 | ✅，feed 日期解析 |
 | body | ✅，公开原文页补全；失败时保留旧正文或为空 | ✅，content/summary 转换 |
 | content | ✅，状态/解析器版本/sidecar 路径/时间/中文错误 | 当前不需要 |
-| HTML 产物 | ✅，正文 `.content.html` + 完整 `.page.html` | 当前不生成 |
+| HTML 产物 | ✅，正文 HTML sidecar + 完整 `.page.html` | 当前不生成 |
 | ext | fakeid、作者、封面、digest 等 | guid、原 summary |
 | read / archived | 初始为 `false` | 初始为 `false` |
 | 旧兼容注释 | 不生成、不展示 | 不生成、不展示 |
@@ -55,13 +56,14 @@ RawItem
 - `contentHtmlPath` 缺失或 sidecar 已丢失；
 - 微信条目缺少本机 `pageHtmlPath`，或路径指向的 `.page.html` 已丢失。这会让先从团队取得 `contentHtml` 的文章在本机真实采到后补存完整页面，也能修复被外部删除的页面快照。
 
-失败不会删除文章元数据，也不会用空结果覆盖一份已经完整的正文。成功补齐后原地更新 Article/sidecar；正文内容确有改善时计入刷新结果的 `updatedArticles`，仅补存本机完整页面不伪装成一篇新/更新文章。网络超时、HTTP 失败与正文节点缺失会记录清晰中文错误；若服务器已经返回 HTML，即使找不到正文节点也保留完整页面。
+失败不会删除文章元数据，也不会用空结果覆盖一份已经完整的正文。成功补齐后切换 Article 指向的新正文 sidecar；正文内容确有改善时计入刷新结果的 `updatedArticles`，仅补存本机完整页面不伪装成一篇新/更新文章。网络超时、HTTP 失败与正文节点缺失会记录清晰中文错误；若服务器已经返回 HTML，即使找不到正文节点也保留完整页面。
+
+历史维护有两个入口：离线模式读取现有不可变页面快照并用当前 parser 重建 Article 投影，不访问网络；联网模式重新访问 `sourceUrl`，先追加新页面快照，再决定是否推进当前投影。可按单篇、当前信源或全部本机文章运行，批量枚举包含归档文章且不受看板 500 条上限影响。
 
 ## 尚未完成
 
 - **Markdown 转换精度**：原始排版 iframe 已能保留经典 `#js_content` 的样式/未知节点，但 Markdown 阅读版仍只覆盖常见标题、段落、链接、图片、强调、引用和列表；表格、音视频和卡片的语义投影仍有限。
-- **页面形态**：新旧 SSR 图片页、风控/验证页和依赖脚本运行的动态组件尚无专用解析器，静态 HTML 可能不完整。
-- **批量重放入口**：完整页面已经保留，但尚无正式命令离线重跑所有旧页面；当前重试依赖条目再次出现在手动刷新结果中。
+- **页面形态**：当前 `picture_page_info_list` 图片消息已支持；旧 `__QMTPL_SSR_DATA__`、风控/验证页和依赖脚本运行的动态组件仍可能无法静态恢复。
 - **质量度量**：正文为空、字段缺失、来源不可达等数据质量指标尚未进入索引和看板。
 
 ## 展示边界

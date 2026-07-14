@@ -1,7 +1,7 @@
 // seen_items 只负责列表去重；正文失败必须允许后续手动刷新重试并补齐 HTML sidecar。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Collector } from '../src/core/collect/collector'
@@ -101,9 +101,13 @@ test('已入库但正文失败的文章会在后续刷新重试并补齐原始�
     assert.equal(first.updatedArticles, 0)
     const failed = store.findArticleByExternalId(source.id, raw.externalId)
     assert.equal(failed?.content?.status, 'failed')
-    assert.ok(failed?.content?.pageHtmlPath)
+    assert.equal(failed?.content?.pageHtmlPath, undefined)
+    assert.ok(failed?.content?.lastAttemptPageHtmlPath)
     assert.equal(failed?.content?.contentHtmlPath, undefined)
 
+    // seen 只控制 Article 去重；列表接口返回的新 Raw 版本仍必须永久留档。
+    raw.fetchedAt = 200
+    raw.raw.listRevision = 2
     const second = await collector.collectSource(source)
     assert.equal(second.newArticles, 0)
     assert.equal(second.updatedArticles, 1)
@@ -113,6 +117,13 @@ test('已入库但正文失败的文章会在后续刷新重试并补齐原始�
     assert.equal(completed?.body, '补齐后的正文')
     assert.match(completed?.contentHtml ?? '', /补齐后的正文/)
     assert.equal(changed.length, 2)
+    const rawVersionDirectory = join(
+      paths.raw,
+      type,
+      source.id,
+      readdirSync(join(paths.raw, type, source.id))[0]
+    )
+    assert.equal(readdirSync(rawVersionDirectory).filter((name) => name.endsWith('.json')).length, 2)
 
     rmSync(join(paths.articles, completed!.content!.contentHtmlPath!), { force: true })
     const repaired = await collector.collectSource(source)
@@ -133,6 +144,10 @@ test('已入库但正文失败的文章会在后续刷新重试并补齐原始�
     assert.doesNotMatch(store.getArticleDetail(failed!.id)?.contentHtml ?? '', /不完整/)
     assert.equal(readFileSync(completePagePath, 'utf8'), completePage)
     assert.doesNotMatch(readFileSync(completePagePath, 'utf8'), /临时验证页/)
+    const failedAttemptPath = store.getArticle(failed!.id)?.content?.lastAttemptPageHtmlPath
+    assert.ok(failedAttemptPath)
+    assert.notEqual(failedAttemptPath, completed!.content!.pageHtmlPath)
+    assert.match(readFileSync(join(paths.raw, failedAttemptPath!), 'utf8'), /临时验证页 4/)
     assert.equal(changed.length, 3)
 
     // 已有完整正文但本机 page sidecar 丢失时，失败响应仍应留档供诊断；
@@ -141,8 +156,14 @@ test('已入库但正文失败的文章会在后续刷新重试并补齐原始�
     const pageRepair = await collector.collectSource(source)
     assert.equal(pageRepair.updatedArticles, 0)
     assert.equal(enrichmentCalls, 5)
-    assert.equal(store.getArticle(failed!.id)?.content?.status, 'complete')
-    assert.match(readFileSync(completePagePath, 'utf8'), /临时验证页 5/)
+    const repairedPageArticle = store.getArticle(failed!.id)
+    assert.equal(repairedPageArticle?.content?.status, 'complete')
+    assert.equal(repairedPageArticle?.content?.pageHtmlPath, completed!.content!.pageHtmlPath)
+    assert.equal(store.getArticlePageHtml(failed!.id), null)
+    assert.match(
+      readFileSync(join(paths.raw, repairedPageArticle!.content!.lastAttemptPageHtmlPath!), 'utf8'),
+      /临时验证页 5/
+    )
   } finally {
     store.close()
     rmSync(dir, { recursive: true, force: true })

@@ -4,7 +4,7 @@
 
 infohub 是 **数据采集 + 文件归档 + SQLite 索引 + 快速看板**。外部工具可读取数据，但项目不直接集成 AI、模型、CLI、Skill 或 Agent 工作流。
 
-当前为 `v0.3.1` 发布阶段，Windows 应用与 NSIS 安装/卸载流程已统一使用项目 logo。桌面 preload/IPC 桥、数据一致性、传统二维码登录、用户确认式更新、可配置小时上限、限流观测、文件型团队同步、独立设置弹窗和可调三栏已完成首轮实现；微信公众号经典图文页已同时保存 Markdown、正文 HTML 与完整页面 HTML，并在看板默认展示原始排版。团队协议硬切 `/api/v2`，正文 HTML 直接进入同步 DTO，不做能力协商或 v1 fallback，也不兼容旧桌面端/旧服务端；升级必须先服务端、后全部桌面端。默认团队 HTTPS 健康入口已经可用，接下来聚焦 SSR/动态微信内容、多设备/Windows 验收、服务备份监控、桌面采集任务分配入口和凭据告警。唯一进度入口是 [docs/overview.md](docs/overview.md)。
+当前发布基线为 `v0.4.0`：已支持图片消息（“贴图号”）解析、历史文章离线重解析/网络重抓、用户显式开启的自动采集，以及可选择、可迁移的数据资料库。资料库分为不可变 Raw 快照、infohub 管理的 Article 投影和外部处理产物 `outputs/`；凭据、设置、团队队列和 Chromium 登录分区固定留在应用私有状态目录，不随资料库迁移。唯一进度入口是 [docs/overview.md](docs/overview.md)。
 
 ## 目录速览
 
@@ -42,9 +42,10 @@ infohub/
 
 - Electron main 与 renderer 通过类型化 IPC 通信；renderer 不直接访问文件、SQLite、凭据或采集接口。
 - SQLite 只用 Node 内置 `node:sqlite`，JavaScript 包管理只用 pnpm。
-- Article Markdown 与其内容 sidecar 是内容真相源，SQLite 是可重建加速层。
+- Raw 抓取快照按内容寻址且不可覆盖；Article Markdown 与内容 sidecar 是 infohub 管理的规范化投影；SQLite 是可重建加速层。
+- 外部 AI/Agent 默认只读 `articles/`，不得修改 `articles/` 或 `raw/`；派生产物只写 `outputs/<producer>/`。
 - 团队同步必须在本地落盘后进入 outbox；网络失败不得回滚或阻塞采集。
-- 默认不自动采集；所有公众号请求全局串行并使用保守限流。
+- 自动采集默认关闭，只有用户显式开启后才按 1 小时～7 天的周期运行；手动和自动批次共用互斥与保守限流。
 - 不加入任何模型依赖、AI CLI 驱动、Skill 安装或 Agent 调度。
 - 所有提交与 Release 共享 `verify.sh` 基线；Windows Release 额外校验 tag 与包版本一致。
 - 不在自动化会话启动常驻 Electron；从 harness 根目录用 `projects/infohub/start.sh`。

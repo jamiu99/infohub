@@ -24,7 +24,7 @@ export interface RawItem {
   sourceId: string
   sourceType: string
   fetchedAt: number
-  externalId: string // 信源内唯一 id（wechat: link；rss: guid）→ 去重键
+  externalId: string // 信源内唯一 id（wechat: aid / mid+idx / biz+mid+idx；rss: guid/link）
   raw: Record<string, unknown> // 原始字段整包
 }
 
@@ -41,6 +41,9 @@ export interface ArticleContentState {
   parserVersion: number
   contentHtmlPath?: string
   pageHtmlPath?: string
+  /** 最近一次网络尝试保存的不可变页面；失败重抓也会更新，但不会替换可用正文。 */
+  lastAttemptPageHtmlPath?: string
+  /** 最近一次网络正文请求；离线重放不会改写它或 error。 */
   lastAttemptAt: number
   lastSuccessAt?: number
   error?: { code: string; message: string }

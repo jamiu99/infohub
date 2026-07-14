@@ -11,6 +11,16 @@ const api: InfohubApi = {
     getCollectionSettings: () => ipcRenderer.invoke(IPC.accountGetCollectionSettings),
     setHourlyRequestLimit: (value) => ipcRenderer.invoke(IPC.accountSetHourlyRequestLimit, value)
   },
+  collection: {
+    getSettings: () => ipcRenderer.invoke(IPC.collectionGetSettings),
+    updateSettings: (input) => ipcRenderer.invoke(IPC.collectionUpdateSettings, input),
+    status: () => ipcRenderer.invoke(IPC.collectionStatus)
+  },
+  dataLibrary: {
+    status: () => ipcRenderer.invoke(IPC.dataLibraryStatus),
+    open: () => ipcRenderer.invoke(IPC.dataLibraryOpen),
+    chooseAndMigrate: () => ipcRenderer.invoke(IPC.dataLibraryChooseAndMigrate)
+  },
   source: {
     list: () => ipcRenderer.invoke(IPC.sourceList),
     search: (type, q) => ipcRenderer.invoke(IPC.sourceSearch, type, q),
@@ -23,7 +33,8 @@ const api: InfohubApi = {
     get: (id) => ipcRenderer.invoke(IPC.articleGet, id),
     markRead: (id, read) => ipcRenderer.invoke(IPC.articleMarkRead, id, read),
     archive: (id) => ipcRenderer.invoke(IPC.articleArchive, id),
-    unreadCounts: () => ipcRenderer.invoke(IPC.articleUnreadCounts)
+    unreadCounts: () => ipcRenderer.invoke(IPC.articleUnreadCounts),
+    reprocess: (input) => ipcRenderer.invoke(IPC.articleReprocess, input)
   },
   team: {
     status: () => ipcRenderer.invoke(IPC.teamStatus),

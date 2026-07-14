@@ -4,7 +4,7 @@ import { userFacingError } from '../shared/errors'
 export interface UpdatePort {
   check(): Promise<void>
   download(): Promise<void>
-  install(): void
+  install(): Promise<void> | void
 }
 
 export interface UpdateUi {
@@ -103,8 +103,8 @@ export class UpdateController {
     if (notify) await this.ui.showError(message)
   }
 
-  installNow(): void {
-    if (this.readyVersion) this.port.install()
+  async installNow(): Promise<void> {
+    if (this.readyVersion) await this.installReadyVersion()
   }
 
   private async offerDownload(version: string): Promise<void> {
@@ -133,9 +133,18 @@ export class UpdateController {
     if (this.prompting) return
     this.prompting = true
     try {
-      if (await this.ui.confirmInstall(version)) this.port.install()
+      if (await this.ui.confirmInstall(version)) await this.installReadyVersion()
     } finally {
       this.prompting = false
+    }
+  }
+
+  private async installReadyVersion(): Promise<void> {
+    try {
+      await this.port.install()
+    } catch (error) {
+      const message = userFacingError(error, '无法安全退出并安装更新')
+      await this.ui.showError(message)
     }
   }
 }

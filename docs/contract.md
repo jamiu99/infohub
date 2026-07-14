@@ -40,10 +40,12 @@ interface RawItem {
   sourceId: string;
   sourceType: string;
   fetchedAt: number;       // 采集时刻 UTC 毫秒
-  externalId: string;      // 信源内唯一 id（wechat: aid/link；rss: guid）→ 用于去重
+  externalId: string;      // 信源内唯一 id（wechat: aid / mid+idx / biz+mid+idx；rss: guid/link）
   raw: Record<string, unknown>;  // 原始字段整包（如公众号 app_msg_list 的一项）
 }
 ```
+
+`fetchedAt` 是一次运行时观察，不属于上游载荷本身。Store 持久化 Raw 证据时只写 `sourceId/sourceType/externalId/raw`，因此同一载荷跨轮次复用同一内容哈希；载荷实际变化才新增 blob。
 
 ## Article — 统一结构（处理层产物，全局通用）
 
@@ -55,11 +57,12 @@ type ArticleContentStatus = 'complete' | 'partial' | 'failed'
 interface ArticleContentState {
   status: ArticleContentStatus;
   parserVersion: number;
-  contentHtmlPath?: string; // 相对 articles/ 的正文 HTML sidecar
+  contentHtmlPath?: string; // 相对 articles/ 的内容寻址、版本化正文 HTML sidecar
   pageHtmlPath?: string;    // 相对 raw/ 的完整页面 HTML
-  lastAttemptAt: number;
+  lastAttemptPageHtmlPath?: string; // 最近一次网络响应快照，可指向失败/验证页
+  lastAttemptAt: number;    // 最近一次网络正文请求；离线重放不改写
   lastSuccessAt?: number;
-  error?: {
+  error?: {                // 最近一次网络正文请求错误；离线重放保留
     code: string;
     message: string;
   };

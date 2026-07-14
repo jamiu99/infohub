@@ -1,16 +1,35 @@
-import { app, BrowserWindow, dialog, shell, Menu, session, type MenuItemConstructorOptions } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  shell,
+  Menu,
+  powerMonitor,
+  session,
+  type MenuItemConstructorOptions
+} from 'electron'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { rmSync } from 'node:fs'
 import { Service } from './service'
 import { initUpdater } from './updater'
 import { isHttpUrl } from '../shared/url'
+import { prepareDataStartup } from './data-startup'
+import { registerDataLibraryIpc } from './data-library-controller'
+import { GracefulShutdownCoordinator } from './graceful-shutdown'
+import { userFacingError } from '../shared/errors'
 
 let service: Service | null = null
+const shutdown = new GracefulShutdownCoordinator(async () => {
+  await service?.prepareForRestart()
+})
 const isDesktopSmokeTest = process.argv.includes('--infohub-smoke-test')
 const smokeDataPath = isDesktopSmokeTest ? join(tmpdir(), `infohub-smoke-${process.pid}`) : null
 
 if (smokeDataPath) app.setPath('userData', smokeDataPath)
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+if (!hasSingleInstanceLock) app.quit()
 
 // 去掉 Electron 默认的 File/Edit/View/Window 原生菜单栏（这不是浏览器，用不上）
 Menu.setApplicationMenu(null)
@@ -94,9 +113,18 @@ function createWindow(): void {
       if (finished) return
       finished = true
       console.log(`Desktop bridge smoke test: ${ok ? 'OK' : 'FAILED'} (${detail})`)
-      service?.stop()
-      if (smokeDataPath) rmSync(smokeDataPath, { recursive: true, force: true })
-      app.exit(ok ? 0 : 1)
+      void (async () => {
+        let exitCode = ok ? 0 : 1
+        try {
+          await service?.stop()
+        } catch (error) {
+          exitCode = 1
+          console.error('Desktop bridge smoke cleanup failed:', error)
+        } finally {
+          if (smokeDataPath) rmSync(smokeDataPath, { recursive: true, force: true })
+          app.exit(exitCode)
+        }
+      })()
     }
     const timer = setTimeout(() => finish(false, 'timeout'), 15_000)
     win.webContents.once('did-finish-load', () => {
@@ -105,6 +133,13 @@ function createWindow(): void {
           if (!window.api || typeof window.api.account?.list !== 'function') return false;
           if (typeof window.api.account?.getCollectionSettings !== 'function') return false;
           if (typeof window.api.account?.setHourlyRequestLimit !== 'function') return false;
+          if (typeof window.api.collection?.getSettings !== 'function') return false;
+          if (typeof window.api.collection?.updateSettings !== 'function') return false;
+          if (typeof window.api.collection?.status !== 'function') return false;
+          if (typeof window.api.dataLibrary?.status !== 'function') return false;
+          if (typeof window.api.dataLibrary?.open !== 'function') return false;
+          if (typeof window.api.dataLibrary?.chooseAndMigrate !== 'function') return false;
+          if (typeof window.api.article?.reprocess !== 'function') return false;
           if (typeof window.api.team?.status !== 'function') return false;
           if (typeof window.api.team?.join !== 'function') return false;
           if (typeof window.api.team?.leave !== 'function') return false;
@@ -114,6 +149,9 @@ function createWindow(): void {
           const initial = await window.api.account.getCollectionSettings();
           const updated = await window.api.account.setHourlyRequestLimit(23);
           const reread = await window.api.account.getCollectionSettings();
+          const collection = await window.api.collection.getSettings();
+          const collectionStatus = await window.api.collection.status();
+          const dataLibrary = await window.api.dataLibrary.status();
           const frameLoaded = await new Promise((resolve) => {
             const frame = document.createElement('iframe');
             const timeout = setTimeout(() => resolve(false), 2000);
@@ -133,6 +171,11 @@ function createWindow(): void {
             && team?.serverUrl === 'https://home.agent-wiki.cn:18038'
             && updated?.hourlyRequestLimit === 23
             && reread?.hourlyRequestLimit === 23
+            && collection?.autoCollectEnabled === false
+            && collection?.intervalMinutes === 240
+            && collectionStatus?.state === 'disabled'
+            && typeof dataLibrary?.root === 'string'
+            && typeof dataLibrary?.outputsPath === 'string'
             && frameLoaded;
         })()`)
         .then((ok) => {
@@ -142,7 +185,7 @@ function createWindow(): void {
           finish(
             passed,
             passed
-              ? 'preload + account/settings IPC + srcdoc iframe + update menu'
+              ? 'preload + account/collection/data IPC + srcdoc iframe + update menu'
               : 'bridge, srcdoc iframe or update menu missing'
           )
         })
@@ -154,23 +197,60 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
-  installImageReferer()
-  service = new Service()
-  service.start()
-  createWindow()
-  const updater = initUpdater()
-  installApplicationMenu(() => void updater.check(true))
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+if (hasSingleInstanceLock) {
+  app.on('second-instance', () => {
+    const window = BrowserWindow.getAllWindows()[0]
+    if (!window) return
+    if (window.isMinimized()) window.restore()
+    window.show()
+    window.focus()
   })
-})
+
+  app.whenReady().then(async () => {
+    try {
+      const userDataRoot = app.getPath('userData')
+      const startup = await prepareDataStartup(userDataRoot)
+      installImageReferer()
+      service = new Service({ paths: startup.paths })
+      service.start()
+      registerDataLibraryIpc({
+        userDataRoot,
+        startup,
+        beforeRestart: async () => service?.prepareForRestart()
+      })
+      createWindow()
+      const updater = initUpdater({
+        beforeInstall: () => shutdown.prepareAndAllowQuit()
+      })
+      installApplicationMenu(() => void updater.check(true))
+      powerMonitor.on('resume', () => service?.resume())
+      app.on('activate', () => {
+        if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '数据资料库初始化失败'
+      dialog.showErrorBox('infohub 无法打开数据资料库', message)
+      await shutdown.prepareAndAllowQuit().catch(() => undefined)
+      app.quit()
+    }
+  })
+}
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    service?.stop()
-    app.quit()
-  }
+  if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => service?.stop())
+app.on('before-quit', (event) => {
+  if (!hasSingleInstanceLock || shutdown.isQuitAllowed()) return
+  event.preventDefault()
+  void shutdown
+    .prepareAndAllowQuit()
+    .then(() => app.quit())
+    .catch((error) => {
+      console.error('安全退出失败:', error)
+      dialog.showErrorBox(
+        'infohub 无法安全退出',
+        userFacingError(error, '等待采集和数据写入完成时发生未知错误')
+      )
+    })
+})

@@ -8,6 +8,7 @@ const showAdd = ref(false)
 const sources = computed(() => store.state.sources)
 const unread = computed(() => store.state.unread)
 const selected = computed(() => store.state.selectedSourceId)
+const busy = computed(() => store.state.progress.phase !== 'idle')
 
 // 该号是否抓取告警：所有账号都不可用时给个 ⚠ 视觉暗示（简化：无 active 账号即告警）
 const hasWarn = computed(() => !store.state.accounts.some((a) => a.status === 'active'))
@@ -22,7 +23,12 @@ function dot(sourceId: string): string {
   <div class="wrap">
     <div class="all" :class="{ active: selected === null }" @click="store.selectSource(null)">
       <span>全部</span>
-      <button class="refresh" title="刷新全部" @click.stop="store.refresh()">⟳</button>
+      <button
+        class="refresh"
+        :disabled="busy"
+        :title="busy ? '当前有采集或维护任务正在运行' : '刷新全部'"
+        @click.stop="store.refresh()"
+      >⟳</button>
     </div>
 
     <ul class="list">
@@ -37,6 +43,11 @@ function dot(sourceId: string): string {
         <span v-if="unread[s.id]" class="badge">{{ unread[s.id] }}</span>
       </li>
     </ul>
+
+    <div v-if="store.state.sourcesError" class="source-error" role="alert">
+      <span>{{ store.state.sourcesError }}</span>
+      <button @click="store.loadSources()">重试</button>
+    </div>
 
     <button class="add" @click="showAdd = true">+ 添加信源</button>
 
@@ -142,5 +153,18 @@ function dot(sourceId: string): string {
 .add:hover {
   color: var(--text);
   border-color: var(--accent);
+}
+.source-error {
+  margin: 6px 12px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warn) 9%, transparent);
+  color: var(--warn);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.source-error button {
+  width: 100%;
+  margin-top: 6px;
 }
 </style>

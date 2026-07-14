@@ -4,8 +4,11 @@ import { store } from '../stores/app'
 import { userFacingError } from '../../../shared/errors'
 import QuotaPanel from './QuotaPanel.vue'
 import TeamPanel from './TeamPanel.vue'
+import AutoCollectPanel from './AutoCollectPanel.vue'
+import ArticleMaintenancePanel from './ArticleMaintenancePanel.vue'
+import DataLibraryPanel from './DataLibraryPanel.vue'
 
-type Section = 'collection' | 'team' | 'appearance' | 'update'
+type Section = 'collection' | 'library' | 'team' | 'appearance' | 'update'
 
 const emit = defineEmits<{ close: []; 'reset-layout': [] }>()
 const active = ref<Section>('collection')
@@ -41,7 +44,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       <header class="settings-header">
         <div>
           <h2>设置</h2>
-          <p>账号、团队、界面和软件选项集中在这里。</p>
+          <p>采集、资料库、团队、界面和软件选项集中在这里。</p>
         </div>
         <button class="close" aria-label="关闭设置" title="关闭" @click="emit('close')">×</button>
       </header>
@@ -49,7 +52,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       <div class="settings-body">
         <nav class="settings-nav" aria-label="设置分类">
           <button :class="{ active: active === 'collection' }" @click="active = 'collection'">
-            采集账号
+            采集与账号
+          </button>
+          <button :class="{ active: active === 'library' }" @click="active = 'library'">
+            数据资料库
           </button>
           <button :class="{ active: active === 'team' }" @click="active = 'team'">
             团队共享
@@ -66,10 +72,20 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         <div class="settings-content">
           <section v-if="active === 'collection'" class="settings-section">
             <div class="section-heading">
-              <h3>采集账号</h3>
-              <p>管理扫码登录状态、每小时保护上限和限流观测。</p>
+              <h3>采集与账号</h3>
+              <p>管理登录状态、请求保护、自动采集和历史正文维护。</p>
             </div>
             <QuotaPanel />
+            <AutoCollectPanel />
+            <ArticleMaintenancePanel />
+          </section>
+
+          <section v-else-if="active === 'library'" class="settings-section">
+            <div class="section-heading">
+              <h3>数据资料库</h3>
+              <p>管理原始数据、正文和外部处理结果的存储位置。</p>
+            </div>
+            <DataLibraryPanel />
           </section>
 
           <section v-else-if="active === 'team'" class="settings-section">

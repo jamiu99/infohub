@@ -5,6 +5,7 @@ import type { WxAccount, WxSearchResult, WxCallResult } from '../../shared/wecha
 import { WX_FREQ_CONTROL_CODE } from '../../shared/wechat'
 
 const BASE = 'https://mp.weixin.qq.com'
+export const WECHAT_BACKEND_TIMEOUT_MS = 15_000
 
 function buildHeaders(account: WxAccount): Record<string, string> {
   const cookie = Object.entries(account.cookies)
@@ -41,7 +42,11 @@ async function wxGet<T extends WxBaseResp>(
 ): Promise<WxCallResult<T>> {
   const url = `${BASE}${path}?${new URLSearchParams(params).toString()}`
   try {
-    const res = await fetch(url, { headers: buildHeaders(account), redirect: 'manual' })
+    const res = await fetch(url, {
+      headers: buildHeaders(account),
+      redirect: 'manual',
+      signal: AbortSignal.timeout(WECHAT_BACKEND_TIMEOUT_MS)
+    })
     // 302 到登录页 = session 失效
     if (res.status >= 300 && res.status < 400) {
       return { ok: false, reason: 'expired', message: `redirected (${res.status})` }
@@ -131,13 +136,45 @@ export async function listArticlesPage(
   return { ok: true, data: { total: r.data.app_msg_cnt ?? 0, items: r.data.app_msg_list ?? [] } }
 }
 
-/** 把一条 app_msg 转成 RawItem（externalId = link 作去重键） */
+function nonEmpty(value: unknown): string {
+  return value === undefined || value === null ? '' : String(value).trim()
+}
+
+/**
+ * 微信 link 会更换 chksm/scene 等参数，不能直接作为长期去重键。优先使用后台返回的 aid；
+ * 缺失时使用 appmsgid+itemidx，再从公开 URL 提取 __biz+mid+idx。
+ */
+export function wechatExternalId(item: Record<string, unknown>): string {
+  const aid = nonEmpty(item.aid)
+  if (aid) return `aid:${aid}`
+
+  const appmsgid = nonEmpty(item.appmsgid ?? item.mid)
+  const rawItemIndex = nonEmpty(item.itemidx ?? item.idx)
+  if (appmsgid) return `mid:${appmsgid}:idx:${rawItemIndex || '1'}`
+
+  const link = nonEmpty(item.link).replace(/&amp;/gi, '&')
+  if (!link) return ''
+  try {
+    const url = new URL(link, BASE)
+    const biz = url.searchParams.get('__biz')?.trim() ?? ''
+    const mid = (url.searchParams.get('mid') ?? url.searchParams.get('appmsgid') ?? '').trim()
+    const index = (url.searchParams.get('idx') ?? '1').trim() || '1'
+    if (mid) return `biz:${biz}:mid:${mid}:idx:${index}`
+    // 非标准/旧链接仍做最小规范化，至少去掉 fragment。
+    url.hash = ''
+    return url.href
+  } catch {
+    return link
+  }
+}
+
+/** 把一条 app_msg 转成 RawItem（externalId 使用稳定微信消息键） */
 export function toRawItem(sourceId: string, item: Record<string, unknown>): RawItem {
   return {
     sourceId,
     sourceType: 'wechat',
     fetchedAt: Date.now(),
-    externalId: String(item.link ?? item.aid ?? ''),
+    externalId: wechatExternalId(item),
     raw: item
   }
 }

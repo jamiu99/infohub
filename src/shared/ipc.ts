@@ -4,10 +4,14 @@
 import type { Source, Article, ArticleDetail, DiscoverResult } from './contract'
 import type { WechatCollectionSettings, WxAccountView } from './wechat'
 import type { TeamJoinInput, TeamStatus } from './team'
+import type { CollectionScheduleStatus, CollectionSettingsView } from './collection'
+import type { ArticleMaintenanceRequest, ArticleMaintenanceResult } from './maintenance'
+import type { DataLibraryMoveResult, DataLibraryStatus } from './data-library'
 
 /** 轮询/采集进度事件（main → renderer 推送） */
 export interface IngestProgress {
   phase: 'idle' | 'polling' | 'waiting_quota'
+  origin?: 'manual' | 'automatic' | 'initial' | 'maintenance'
   currentSource?: string
   queued: number
   nextRunAt?: number // 下一轮自动轮询时刻
@@ -27,6 +31,22 @@ export interface InfohubApi {
     getCollectionSettings(): Promise<WechatCollectionSettings>
     /** 修改所有微信账号共用的本地小时保护上限，保存后立即生效。 */
     setHourlyRequestLimit(value: number): Promise<WechatCollectionSettings>
+  }
+  // —— 内容采集计划（与软件自动更新无关）——
+  collection: {
+    getSettings(): Promise<CollectionSettingsView>
+    updateSettings(input: {
+      autoCollectEnabled: boolean
+      intervalMinutes: number
+    }): Promise<CollectionSettingsView>
+    status(): Promise<CollectionScheduleStatus>
+  }
+  // —— 可迁移的内容资料库 ——
+  dataLibrary: {
+    status(): Promise<DataLibraryStatus>
+    open(): Promise<void>
+    /** 选择空目录，排队到下次启动迁移；应用会安全关闭后自动重启。 */
+    chooseAndMigrate(): Promise<DataLibraryMoveResult>
   }
   // —— 信源（关注的公众号 / RSS / …）——
   source: {
@@ -50,6 +70,8 @@ export interface InfohubApi {
     markRead(id: string, read: boolean): Promise<void>
     archive(id: string): Promise<void>
     unreadCounts(): Promise<Record<string, number>> // sourceId → 未读数
+    /** 从本机快照离线重建，或重新请求原文；原始快照永不被覆盖。 */
+    reprocess(input: ArticleMaintenanceRequest): Promise<ArticleMaintenanceResult>
   }
   // —— 团队同步 ——
   team: {
@@ -65,6 +87,7 @@ export interface InfohubApi {
   }
   // —— 事件订阅 ——
   on(channel: 'ingest-progress', cb: (p: IngestProgress) => void): () => void
+  on(channel: 'collection-status', cb: (s: CollectionScheduleStatus) => void): () => void
   on(channel: 'accounts-changed', cb: () => void): () => void
   on(channel: 'articles-changed', cb: () => void): () => void
   on(channel: 'team-status', cb: (status: TeamStatus) => void): () => void
@@ -87,6 +110,12 @@ export const IPC = {
   accountRemove: 'account:remove',
   accountGetCollectionSettings: 'account:getCollectionSettings',
   accountSetHourlyRequestLimit: 'account:setHourlyRequestLimit',
+  collectionGetSettings: 'collection:getSettings',
+  collectionUpdateSettings: 'collection:updateSettings',
+  collectionStatus: 'collection:status',
+  dataLibraryStatus: 'dataLibrary:status',
+  dataLibraryOpen: 'dataLibrary:open',
+  dataLibraryChooseAndMigrate: 'dataLibrary:chooseAndMigrate',
   sourceList: 'source:list',
   sourceSearch: 'source:search',
   sourceAdd: 'source:add',
@@ -97,6 +126,7 @@ export const IPC = {
   articleMarkRead: 'article:markRead',
   articleArchive: 'article:archive',
   articleUnreadCounts: 'article:unreadCounts',
+  articleReprocess: 'article:reprocess',
   teamStatus: 'team:status',
   teamJoin: 'team:join',
   teamLeave: 'team:leave',

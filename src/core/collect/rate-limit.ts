@@ -11,6 +11,7 @@ export const RATE_LIMIT = {
   hourLimit: WECHAT_HOURLY_LIMIT.default, // 兼容默认值；运行时由 settings.json 覆盖
   requestIntervalMs: 10_000, // 同账号连续请求间隔（拉长到 10s）
   accountIntervalMs: 15_000, // 换账号间隔
+  publicContentIntervalMs: 2_000, // 公开文章页也保守串行，避免批量正文重抓过快
   cooldownMs: 2 * 60 * 60 * 1000, // 命中 200013 冷却 2 小时
   incrementalMaxPages: 1, // 联调期单号单次只拉 1 页（尽量少碰接口）
   historyMaxPages: 20, // 历史抓取最大页数（暂不用）

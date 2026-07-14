@@ -141,6 +141,15 @@ export class TeamSyncClient {
   /** 本地文章落盘后仅写可靠队列，不进行网络请求，因此采集链不会被网络阻塞。 */
   enqueue(source: Source, article: Article | ArticleDetail, emitStatus = true): boolean {
     if (!this.enabled || !this.credentials || this.credentials.serverUrl !== this.serverUrl) return false
+    // 团队 v2 DTO 没有 partial/failed 状态，远端收到 contentHtml 会登记为 complete。
+    // 因此新版微信文章只有完整解析后才能入队；没有 content 状态的旧历史文件仍按原契约处理。
+    if (
+      source.type === 'wechat' &&
+      article.content &&
+      article.content.status !== 'complete'
+    ) {
+      return false
+    }
     const sourcePayload = toTeamSourcePayload(source)
     const articlePayload = toTeamArticlePayload(article)
     const eventId = createHash('sha256')
@@ -212,6 +221,12 @@ export class TeamSyncClient {
   stop(): void {
     if (this.timer) clearInterval(this.timer)
     this.timer = null
+  }
+
+  /** 停止后续定时器并等待当前网络同步及其本地写入收尾。 */
+  async stopAndWait(): Promise<void> {
+    this.stop()
+    await this.syncing
   }
 
   private async performSync(): Promise<void> {

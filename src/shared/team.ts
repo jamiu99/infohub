@@ -227,7 +227,10 @@ export function toTeamArticlePayload(
   if (
     'contentHtml' in article &&
     typeof article.contentHtml === 'string' &&
-    article.contentHtml.length > 0
+    article.contentHtml.length > 0 &&
+    (article.source.type !== 'wechat' ||
+      !article.content ||
+      article.content.status === 'complete')
   ) {
     payload.contentHtml = article.contentHtml
   }

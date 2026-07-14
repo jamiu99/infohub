@@ -58,6 +58,12 @@ export interface SourceAdapter {
    */
   enrichContent?(sourceUrl: string): Promise<EnrichedArticleContent>
 
+  /**
+   * 可选：只使用已保存的完整页面重新解析派生正文，不发起网络请求。
+   * 实现不得修改传入页面，也不得把解析结果写回 raw/。
+   */
+  parseContentPage?(pageHtml: string, sourceUrl: string): EnrichedArticleContent
+
 }
 
 /** adapter 注册表：按 type 找 adapter */

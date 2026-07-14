@@ -6,7 +6,10 @@ import { clockTime, dateTime } from '../util'
 import { userFacingError } from '../../../shared/errors'
 
 const accounts = computed(() => store.state.accounts)
-const nextRun = computed(() => store.state.progress.nextRunAt)
+const nextRun = computed(() => store.state.collectionStatus?.nextRunAt)
+const loadError = computed(
+  () => store.state.accountsError || store.state.wechatSettingsError
+)
 const settings = computed(() => store.state.wechatSettings)
 const limitDraft = ref('20')
 const saving = ref(false)
@@ -153,6 +156,10 @@ async function relogin(id: string): Promise<void> {
     </div>
 
     <div v-if="accountError" class="account-error">{{ accountError }}</div>
+    <div v-if="loadError" class="account-error">
+      {{ loadError }}
+      <button @click="store.loadAccounts(); store.loadWechatSettings()">重新读取</button>
+    </div>
     <button v-if="accounts.length" class="add" :disabled="accountAction !== null" @click="login">
       {{ accountAction === 'login' ? '正在打开扫码窗口…' : '+ 登录一个号（提升采集上限）' }}
     </button>

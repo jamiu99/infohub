@@ -5,6 +5,7 @@ import { store } from '../stores/app'
 import { clockTime } from '../util'
 import { renderMarkdown } from '../markdown'
 import { buildWechatSrcdoc } from '../wechat-html'
+import { userFacingError } from '../../../shared/errors'
 
 const a = computed(() => store.state.selectedArticle)
 const author = computed(() => (a.value?.ext?.author_name as string) || '')
@@ -19,6 +20,10 @@ const originalSrcdoc = computed(() =>
     : ''
 )
 const viewMode = ref<'original' | 'reader'>('reader')
+const reprocessBusy = ref(false)
+const reprocessMessage = ref('')
+const reprocessMessageKind = ref<'success' | 'error'>('success')
+const maintenanceBusy = computed(() => store.state.articleMaintenanceBusy)
 
 watch(
   () => ({ id: a.value?.id, canShowOriginal: canShowOriginal.value }),
@@ -29,11 +34,58 @@ watch(
   { immediate: true }
 )
 
+watch(
+  () => a.value?.id,
+  () => {
+    reprocessMessage.value = ''
+  }
+)
+
 function openOriginal(): void {
   if (a.value?.sourceUrl) window.open(a.value.sourceUrl, '_blank')
 }
 function archive(): void {
   if (a.value) void window.api.article.archive(a.value.id).then(() => store.refreshAll())
+}
+async function reprocess(): Promise<void> {
+  const articleId = a.value?.id
+  if (!articleId || maintenanceBusy.value) return
+
+  reprocessBusy.value = true
+  reprocessMessage.value = ''
+  try {
+    const result = await store.reprocessArticles({
+      mode: 'network',
+      scope: 'article',
+      articleId
+    })
+    if (a.value?.id !== articleId) return
+
+    const failed = result.items.find((item) => item.status === 'failed')
+    const skipped = result.items.find((item) => item.status === 'skipped')
+    if (result.failed > 0) {
+      reprocessMessageKind.value = 'error'
+      reprocessMessage.value = userFacingError(failed?.message, '重新抓取失败')
+    } else if (result.updated > 0) {
+      reprocessMessageKind.value = 'success'
+      reprocessMessage.value = '重新抓取完成，正文已更新。'
+    } else if (result.unchanged > 0) {
+      reprocessMessageKind.value = 'success'
+      reprocessMessage.value = '重新抓取完成，正文没有变化。'
+    } else if (result.skipped > 0) {
+      reprocessMessageKind.value = 'error'
+      reprocessMessage.value = userFacingError(skipped?.message, '这篇文章暂时无法重新抓取')
+    } else {
+      reprocessMessageKind.value = 'error'
+      reprocessMessage.value = '没有找到可重新抓取的本机文章。'
+    }
+  } catch (error) {
+    if (a.value?.id !== articleId) return
+    reprocessMessageKind.value = 'error'
+    reprocessMessage.value = userFacingError(error, '重新抓取失败')
+  } finally {
+    reprocessBusy.value = false
+  }
 }
 function publishedDate(ts: number): string {
   return ts ? new Date(ts).toLocaleString() : ''
@@ -52,6 +104,22 @@ function publishedDate(ts: number): string {
       <div class="actions">
         <button class="primary" @click="openOriginal">打开原文</button>
         <button @click="archive">归档</button>
+        <button
+          class="reprocess"
+          :disabled="maintenanceBusy"
+          title="重新访问原文并刷新本机正文"
+          @click="reprocess"
+        >
+          {{ reprocessBusy ? '重新抓取中…' : maintenanceBusy ? '维护进行中…' : '重新抓取' }}
+        </button>
+        <span
+          v-if="reprocessMessage"
+          class="reprocess-message"
+          :class="reprocessMessageKind"
+          role="status"
+        >
+          {{ reprocessMessage }}
+        </span>
         <div v-if="canShowOriginal" class="content-mode" role="group" aria-label="正文显示方式">
           <button
             :class="{ active: viewMode === 'original' }"
@@ -139,6 +207,18 @@ h1 {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-subtle);
+}
+.reprocess {
+  color: var(--text-dim);
+}
+.reprocess-message {
+  max-width: 240px;
+  color: var(--ok);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.reprocess-message.error {
+  color: var(--warn);
 }
 .content-mode button {
   border: 0;

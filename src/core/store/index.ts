@@ -22,8 +22,23 @@ const FILE_SYNC_THROTTLE_MS = 500
 export interface ArticleArtifacts {
   /** #js_content outerHTML，写入 articles/ 下与 Markdown 同名的 sidecar。 */
   contentHtml?: string
-  /** 未改写的完整公开页面，使用 externalId SHA-256 命名并写入 raw/。 */
+  /** 未改写的完整公开页面，使用 HTML 内容 SHA-256 命名并写入 raw/。 */
   pageHtml?: string
+  /** 未指定时仅 complete 状态会提升为 pageHtmlPath；false 可显式只留诊断快照。 */
+  promotePageHtml?: boolean
+}
+
+/** 后台维护/重放使用；与看板筛选和分页上限相互独立。 */
+export interface MaintenanceArticleQuery {
+  sourceId?: string
+  type?: string
+  mineOnly?: boolean
+}
+
+export interface ArticleReplayPage {
+  /** 相对 raw/ 的不可变页面路径。 */
+  path: string
+  pageHtml: string
 }
 
 /** 文件先写临时文件再 rename；失败时旧文件仍完整。 */
@@ -34,6 +49,25 @@ function writeFileAtomic(path: string, content: string): void {
     renameSync(tmp, path)
   } finally {
     if (existsSync(tmp)) rmSync(tmp, { force: true })
+  }
+}
+
+function sha256(content: string): string {
+  return createHash('sha256').update(content, 'utf8').digest('hex')
+}
+
+/**
+ * 内容寻址文件只允许首次创建。相同内容直接复用；即使发生理论上的哈希碰撞，
+ * 也宁可报错而不覆盖已有快照。
+ */
+function writeImmutableContent(path: string, content: string): void {
+  try {
+    writeFileSync(path, content, { flag: 'wx' })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    if (readFileSync(path, 'utf8') !== content) {
+      throw new Error(`内容寻址冲突，已保留原文件: ${path}`)
+    }
   }
 }
 
@@ -154,22 +188,42 @@ export class Store {
   }
 
   // —— 原始载荷（溯源/重放）——
-  saveRaw(item: RawItem): void {
-    const dir = resolveInside(this.paths.raw, item.sourceType, item.sourceId)
+  saveRaw(item: RawItem): string {
+    // fetchedAt 是本次观察时间，不属于上游证据内容。把它放进内容哈希会让完全相同的
+    // 列表响应在每轮自动采集时都生成新文件；Raw blob 只保存稳定、可重放的上游载荷。
+    const evidence = {
+      sourceId: item.sourceId,
+      sourceType: item.sourceType,
+      externalId: item.externalId,
+      raw: item.raw
+    }
+    const content = JSON.stringify(evidence, null, 2)
+    // externalId 使用完整摘要作为目录，避免 URL 编码截断造成不同条目共用文件名。
+    const relPath = join(
+      item.sourceType,
+      item.sourceId,
+      sha256(item.externalId),
+      `${sha256(content)}.json`
+    )
+    const path = resolveInside(this.paths.raw, relPath)
+    const dir = dirname(path)
     mkdirSync(dir, { recursive: true })
-    const name = encodeURIComponent(item.externalId).slice(0, 180) + '.json'
-    writeFileAtomic(join(dir, name), JSON.stringify(item, null, 2))
+    writeImmutableContent(path, content)
+    return relPath
   }
 
-  private rawPageRelativePath(article: Article): string {
-    const key = createHash('sha256').update(article.externalId || article.sourceUrl || article.id).digest('hex')
-    return join(article.source.type, article.source.id, `${key}.page.html`)
+  private rawPageRelativePath(article: Article, pageHtml: string): string {
+    // 页面快照按实际 HTML 字节寻址；同一页面复用，不同响应（含失败页）永久并存。
+    return join(article.source.type, article.source.id, 'pages', `${sha256(pageHtml)}.page.html`)
   }
 
-  private contentHtmlRelativePath(articleMarkdownPath: string): string {
-    return articleMarkdownPath.endsWith('.md')
-      ? `${articleMarkdownPath.slice(0, -3)}.content.html`
-      : `${articleMarkdownPath}.content.html`
+  private contentHtmlRelativePath(articleMarkdownPath: string, contentHtml: string): string {
+    const base = articleMarkdownPath.endsWith('.md')
+      ? articleMarkdownPath.slice(0, -3)
+      : articleMarkdownPath
+    // 正文投影也使用版本化 sidecar：先完整写入新版本，再让 Markdown 原子切换指针。
+    // 即使切换失败，旧 Markdown 仍指向旧 sidecar，不会丢掉上一份成功正文。
+    return `${base}.${sha256(contentHtml)}.content.html`
   }
 
   // —— 文章：文件为源 + 索引 ——
@@ -180,20 +234,26 @@ export class Store {
     mkdirSync(dir, { recursive: true })
 
     let content = article.content ? { ...article.content } : undefined
+    const previousContentHtmlPath = content?.contentHtmlPath
     if (artifacts.pageHtml !== undefined) {
       if (!content) throw new Error('写入原始页面前必须提供 Article.content 状态')
-      const pageRelPath = this.rawPageRelativePath(article)
+      const pageRelPath = this.rawPageRelativePath(article, artifacts.pageHtml)
       const pagePath = resolveInside(this.paths.raw, pageRelPath)
       mkdirSync(dirname(pagePath), { recursive: true })
-      writeFileAtomic(pagePath, artifacts.pageHtml)
-      content = { ...content, pageHtmlPath: pageRelPath }
+      writeImmutableContent(pagePath, artifacts.pageHtml)
+      const promotePageHtml = artifacts.promotePageHtml ?? content.status === 'complete'
+      content = {
+        ...content,
+        ...(promotePageHtml ? { pageHtmlPath: pageRelPath } : {}),
+        lastAttemptPageHtmlPath: pageRelPath
+      }
     }
     if (artifacts.contentHtml !== undefined && artifacts.contentHtml.length > 0) {
       if (!content) throw new Error('写入正文 HTML 前必须提供 Article.content 状态')
-      const contentRelPath = this.contentHtmlRelativePath(relPath)
+      const contentRelPath = this.contentHtmlRelativePath(relPath, artifacts.contentHtml)
       const contentPath = resolveInside(this.paths.articles, contentRelPath)
       mkdirSync(dirname(contentPath), { recursive: true })
-      writeFileAtomic(contentPath, artifacts.contentHtml)
+      writeImmutableContent(contentPath, artifacts.contentHtml)
       content = { ...content, contentHtmlPath: contentRelPath }
     }
 
@@ -201,6 +261,19 @@ export class Store {
     writeFileAtomic(filePath, articleToMarkdown(withPath))
     this.upsertIndex(withPath)
     if (withPath.externalId) this.markSeen(withPath.source.id, withPath.externalId, withPath.id)
+    // Markdown 与索引都已成功指向新版本后，旧 projection 才可清理。崩溃发生在这里之前
+    // 最多留下一个无引用旧文件，不会让当前文章失去可用正文。
+    if (
+      previousContentHtmlPath &&
+      content?.contentHtmlPath &&
+      previousContentHtmlPath !== content.contentHtmlPath
+    ) {
+      try {
+        rmSync(resolveInside(this.paths.articles, previousContentHtmlPath), { force: true })
+      } catch {
+        // 旧版或损坏路径不影响已经提交的新投影。
+      }
+    }
     return withPath
   }
 
@@ -264,6 +337,32 @@ export class Store {
     return rows.map((r) => this.getArticle(r.id)).filter((a): a is Article => !!a)
   }
 
+  /**
+   * 重新解析、重抓等后台维护任务使用：包含归档文章且不设看板的 500 条上限。
+   * mineOnly=true 时排除仅来自团队的文章；false/未传时枚举本地索引全部文章。
+   */
+  listArticlesForMaintenance(opts: MaintenanceArticleQuery = {}): Article[] {
+    this.syncIndexFromFiles(true)
+    const where: string[] = []
+    const params: string[] = []
+    if (opts.sourceId) {
+      where.push('source_id = ?')
+      params.push(opts.sourceId)
+    }
+    if (opts.type) {
+      where.push('source_type = ?')
+      params.push(opts.type)
+    }
+    if (opts.mineOnly) where.push('contributed_by_me = 1')
+    const sql =
+      `SELECT id FROM articles ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ` +
+      'ORDER BY published_at DESC'
+    const rows = this.db.prepare(sql).all(...params) as Array<{ id: string }>
+    return rows
+      .map((row) => this.getArticle(row.id))
+      .filter((article): article is Article => !!article)
+  }
+
   /** 首次加入团队时使用：枚举全部本机贡献（含已归档），不受看板 500 条上限影响。 */
   listContributedArticlesForSync(): ArticleDetail[] {
     this.syncIndexFromFiles(true)
@@ -314,6 +413,48 @@ export class Store {
     } catch {
       return false
     }
+  }
+
+  /** 读取文章当前 frontmatter 指向的最新完整页面；非法/缺失路径安全返回 null。 */
+  getArticlePageHtml(id: string): string | null {
+    const article = this.getArticle(id)
+    const relPath = article?.content?.pageHtmlPath
+    if (!relPath) return null
+    try {
+      const full = resolveInside(this.paths.raw, relPath)
+      if (!existsSync(full)) return null
+      return readFileSync(full, 'utf8')
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * 离线重放优先读取与当前正文对应的成功页面；正文尚未成功时读取最近尝试快照。
+   * 这里只读取不可变 raw 文件，不会修改或提升任何快照引用。
+   */
+  getArticleReplayPage(id: string): ArticleReplayPage | null {
+    const article = this.getArticle(id)
+    if (!article?.content) return null
+    const candidates = article.content.status === 'complete'
+      ? [article.content.pageHtmlPath, article.content.lastAttemptPageHtmlPath]
+      : [article.content.lastAttemptPageHtmlPath, article.content.pageHtmlPath]
+    const visited = new Set<string>()
+    for (const relPath of candidates) {
+      if (!relPath || visited.has(relPath)) continue
+      visited.add(relPath)
+      try {
+        const full = resolveInside(this.paths.raw, relPath)
+        if (existsSync(full)) return { path: relPath, pageHtml: readFileSync(full, 'utf8') }
+      } catch {
+        // 路径损坏时继续尝试另一个合法候选。
+      }
+    }
+    return null
+  }
+
+  getArticleReplayPageHtml(id: string): string | null {
+    return this.getArticleReplayPage(id)?.pageHtml ?? null
   }
 
   findArticleByExternalId(sourceId: string, externalId: string): Article | null {

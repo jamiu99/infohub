@@ -15,6 +15,7 @@ interface SourceAdapter {
   fetch(source: Source, opts?: { maxPages?: number }): Promise<FetchOutcome>  // 拉原始条目
   readiness?(): { ready: boolean; reason?: string }         // 采集前就绪检查（如 wechat 无账号）
   contentParserVersion?: number
+  parseContentPage?(pageHtml: string, sourceUrl: string): EnrichedArticleContent
   enrichContent?(sourceUrl: string): Promise<{
     body: string                    // Markdown 阅读投影
     contentHtml?: string            // 可直接展示的正文 HTML
@@ -62,7 +63,7 @@ cookie: <账号 cookie>
                                 author_name, create_time, update_time, ... }
 ```
 
-映射到 `RawItem`：`externalId = link`（去重键），`raw = app_msg_list 项整包`。
+映射到 `RawItem`：`externalId` 优先使用稳定 `aid`，否则由文章 URL 的 `__biz + mid + idx` 生成 canonical key；不把易变化的 `chksm/scene` 等完整查询串当去重身份。`raw = app_msg_list` 项整包。
 分页：`begin += count` 循环，命中错误码 `200013` 即限流（见 [wechat-login.md](wechat-login.md#四多账号与限流)）。
 每次请求间隔 sleep，翻页受 `maxPages` 限制。
 
@@ -70,7 +71,7 @@ cookie: <账号 cookie>
 
 `Source.config` 里存：`{ fakeid: string, alias?: string, signature?: string }`（由 discover 得到）。账号不绑定到 Source；`WechatAdapter` 持有共享 `AccountPool` 引用并在每次请求前选择账号。
 
-当前默认只拉 1 页 × 10 条；不做定时轮询。搜索与采集都经过 Collector 全局串行锁，实际保护参数见 [wechat-login.md](wechat-login.md#四多账号与限流)。
+当前默认只拉 1 页 × 10 条。手动和用户显式开启的定时采集都经过批次互斥与 Collector 全局串行锁；不同信源的认证请求还共用 10 秒全局请求门，换号重试至少等待 15 秒。实际保护参数见 [wechat-login.md](wechat-login.md#四多账号与限流)。
 
 文章列表接口只提供摘要和原文链接；详情页正文属于 `enrichContent` 阶段。当前经典图文页已用 `parse5` 构建 HTML 树并定位 `#js_content`，同时返回：
 
@@ -79,7 +80,7 @@ cookie: <账号 cookie>
 - 未改写的完整 `pageHtml`；
 - `status/parserVersion/error` 生命周期信息。
 
-公开文章详情不携带公众号后台 Cookie。新版/旧版 SSR 图片页和依赖页面脚本的动态内容还没有专用解析路径，页面形态、内容类型和后续顺序记录在 [wechat-content.md](wechat-content.md)。
+`parseContentPage` 使用本机页面快照做同一套纯解析，不执行脚本也不发网络请求。联网正文请求不携带公众号后台 Cookie，并经过 2 秒全局公开页面请求门。当前已支持 `picture_page_info_list` 图片消息；旧 SSR 和依赖页面脚本的动态内容仍需降级，页面形态和后续顺序记录在 [wechat-content.md](wechat-content.md)。
 
 ## RSS（已实现）
 

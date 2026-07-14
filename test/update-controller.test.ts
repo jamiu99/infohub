@@ -87,3 +87,57 @@ test('后台检查失败只广播错误，手动检查失败才弹窗', async ()
   await manual.controller.failed(new Error('offline'))
   assert.equal(manual.calls.includes('error'), true)
 })
+
+test('安装会等待异步退出收尾，失败时保留可重试状态并显示错误', async () => {
+  const calls: string[] = []
+  let release!: () => void
+  const controller = new UpdateController(
+    {
+      check: async () => undefined,
+      download: async () => undefined,
+      install: async () => {
+        calls.push('prepare')
+        await new Promise<void>((resolve) => { release = resolve })
+        calls.push('install')
+      }
+    },
+    {
+      status: () => undefined,
+      progress: () => undefined,
+      confirmDownload: async () => false,
+      confirmInstall: async () => false,
+      showUpToDate: async () => undefined,
+      showBusy: async () => undefined,
+      showError: async () => void calls.push('error')
+    },
+    '1.0.0'
+  )
+  await controller.downloaded('1.1.0')
+  const installing = controller.installNow()
+  await Promise.resolve()
+  assert.deepEqual(calls, ['prepare'])
+  release()
+  await installing
+  assert.deepEqual(calls, ['prepare', 'install'])
+
+  const failing = new UpdateController(
+    {
+      check: async () => undefined,
+      download: async () => undefined,
+      install: async () => { throw new Error('shutdown failed') }
+    },
+    {
+      status: () => undefined,
+      progress: () => undefined,
+      confirmDownload: async () => false,
+      confirmInstall: async () => false,
+      showUpToDate: async () => undefined,
+      showBusy: async () => undefined,
+      showError: async () => void calls.push('error')
+    },
+    '1.0.0'
+  )
+  await failing.downloaded('1.1.0')
+  await failing.installNow()
+  assert.equal(calls.at(-1), 'error')
+})
