@@ -166,6 +166,41 @@ test('迁移记录不能写进源或目标资料库', async () => {
   }
 })
 
+test('迁移记录路径会消除祖先别名后再判断是否位于资料库内', async (t) => {
+  const current = fixture()
+  const homeAlias = `${current.home}-alias`
+  try {
+    try {
+      symlinkSync(current.home, homeAlias, 'dir')
+    } catch (error) {
+      if (['EPERM', 'EACCES'].includes((error as NodeJS.ErrnoException).code ?? '')) {
+        t.skip('当前平台不允许测试进程创建目录链接')
+        return
+      }
+      throw error
+    }
+    await assert.rejects(
+      migrateDataDirectory({
+        sourceRoot: current.source,
+        targetRoot: current.target,
+        journalPath: join(
+          homeAlias,
+          basename(current.source),
+          'missing',
+          'deep',
+          'migration.json'
+        )
+      }),
+      (error: unknown) =>
+        error instanceof DataMigrationError && error.code === 'JOURNAL_INSIDE_DATA'
+    )
+    assert.equal(existsSync(join(current.source, 'missing')), false)
+  } finally {
+    rmSync(homeAlias, { recursive: true, force: true })
+    rmSync(current.home, { recursive: true, force: true })
+  }
+})
+
 test('源目录含 symlink 时拒绝并清理 staging，源与空目标保持不变', async (t) => {
   const current = fixture()
   try {

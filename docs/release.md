@@ -6,12 +6,12 @@
 
 2026-07-15 的发布基线：
 
-- 当前源码版本为 `v0.4.0`，发布说明见 [releases/v0.4.0.md](releases/v0.4.0.md)。
+- 当前源码版本为 `v0.4.1`，发布说明见 [releases/v0.4.1.md](releases/v0.4.1.md)。
 - 上个正式 GitHub Release 是 `v0.3.1`；`v0.1.2` 因 preload 回归已取消并转为 draft。
 - Release workflow 已在 `v0.1.1` 补齐版本校验、typecheck 和核心测试。
 - 尚无 Windows 安装人工验收或跨版本自动更新验收记录，不能把“存在更新代码”表述为“升级闭环已验收”。
 - `v0.3.0` 的团队同步协议包含正文 HTML并硬切 `/api/v2`，不提供 v1 fallback；不支持旧桌面端、旧服务端与新版本混用。
-- `v0.4.0` 继续使用项目 logo，并新增贴图号、历史重跑、自动采集和可迁移资料库；旧私有状态首次启动只复制到固定 `state/`，不删除原文件。
+- `v0.4.1` 继续使用项目 logo，并新增贴图号、历史重跑、自动采集和可迁移资料库；旧私有状态首次启动只复制到固定 `state/`，不删除原文件。
 
 仓库和 Release 当前是 **Public**，`electron-updater` 可直接读取公开 Release，无需客户端 token。
 
@@ -37,17 +37,17 @@ checkout
 
 ## 发布下一版本
 
-不要复用旧 tag。例如发布 `0.4.0`：
+不要复用旧 tag。例如发布 `0.4.1`：
 
 ```bash
 # 1. 更新版本、文档和 release notes
-pnpm version 0.4.0 --no-git-tag-version
+pnpm version 0.4.1 --no-git-tag-version
 ./verify.sh
 
 # 2. 确认工作树、提交和远端正确后再创建 tag
-git tag v0.4.0
+git tag v0.4.1
 git push origin main
-git push origin v0.4.0
+git push origin v0.4.1
 ```
 
 约束：`package.json.version` 必须与 tag 去掉 `v` 后完全一致；Release workflow 会自动阻断不一致发布。

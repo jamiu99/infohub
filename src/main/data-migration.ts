@@ -140,6 +140,23 @@ async function canonicalTarget(path: string): Promise<string> {
   return resolve(await realpath(parent), basename(path))
 }
 
+/**
+ * 解析可能尚不存在的文件路径，同时消除任意祖先目录中的链接、目录联接和
+ * Windows 8.3 短路径别名。journal 的父目录通常要到首次写入时才创建，
+ * 因此不能只 realpath 它的直接父目录。
+ */
+async function canonicalPotentialPath(path: string): Promise<string> {
+  let existingAncestor = resolve(path)
+  const missingSegments: string[] = []
+  while (!(await lstatOrNull(existingAncestor))) {
+    const parent = dirname(existingAncestor)
+    if (parent === existingAncestor) return existingAncestor
+    missingSegments.unshift(basename(existingAncestor))
+    existingAncestor = parent
+  }
+  return resolve(await realpath(existingAncestor), ...missingSegments)
+}
+
 async function assertSourceRoot(path: string): Promise<string> {
   const current = await lstatOrNull(path)
   if (!current) {
@@ -346,6 +363,7 @@ export async function migrateDataDirectory(options: DataMigrationOptions): Promi
   const sourceRoot = await assertSourceRoot(requestedSource)
   const target = await assertEmptyTarget(requestedTarget)
   const targetRoot = target.canonical
+  const journalPath = await canonicalPotentialPath(requestedJournal)
   if (
     sourceRoot === targetRoot ||
     isInside(sourceRoot, targetRoot) ||
@@ -358,19 +376,26 @@ export async function migrateDataDirectory(options: DataMigrationOptions): Promi
     )
   }
   if (
-    requestedJournal === sourceRoot ||
-    requestedJournal === targetRoot ||
-    isInside(sourceRoot, requestedJournal) ||
-    isInside(targetRoot, requestedJournal)
+    journalPath === sourceRoot ||
+    journalPath === targetRoot ||
+    isInside(sourceRoot, journalPath) ||
+    isInside(targetRoot, journalPath)
   ) {
     throw new DataMigrationError(
       'JOURNAL_INSIDE_DATA',
       '迁移记录必须放在资料库之外的固定私有状态目录',
-      requestedJournal
+      journalPath
     )
   }
 
   const stagingRoot = resolve(dirname(targetRoot), `.${basename(targetRoot)}.infohub-staging-${id}`)
+  if (journalPath === stagingRoot || isInside(stagingRoot, journalPath)) {
+    throw new DataMigrationError(
+      'JOURNAL_INSIDE_DATA',
+      '迁移记录不能放在迁移暂存目录中',
+      journalPath
+    )
+  }
   if (await lstatOrNull(stagingRoot)) {
     throw new DataMigrationError('STAGING_EXISTS', `迁移暂存目录已存在：${stagingRoot}`, stagingRoot)
   }
@@ -390,7 +415,7 @@ export async function migrateDataDirectory(options: DataMigrationOptions): Promi
   }
   const persistPhase = async (phase: DataMigrationPhase): Promise<void> => {
     journal = { ...journal, phase, updatedAt: now() }
-    await writeJournalAtomic(requestedJournal, journal)
+    await writeJournalAtomic(journalPath, journal)
     await options.hooks?.onPhase?.(journal)
   }
 
@@ -472,7 +497,7 @@ export async function migrateDataDirectory(options: DataMigrationOptions): Promi
     return {
       sourceRoot,
       targetRoot: requestedTarget,
-      journalPath: requestedJournal,
+      journalPath,
       files: journal.files.map((file) => ({ ...file })),
       bytes: journal.bytes
     }
@@ -480,7 +505,7 @@ export async function migrateDataDirectory(options: DataMigrationOptions): Promi
     if (!journal.committed) await rm(stagingRoot, { recursive: true, force: true }).catch(() => undefined)
     const message = error instanceof Error ? error.message : String(error)
     journal = { ...journal, phase: 'failed', updatedAt: now(), error: message }
-    await writeJournalAtomic(requestedJournal, journal).catch(() => undefined)
+    await writeJournalAtomic(journalPath, journal).catch(() => undefined)
     if (error instanceof DataMigrationError) throw error
     const code: DataMigrationErrorCode = journal.committed ? 'COMMIT_FAILED' : 'COPY_FAILED'
     throw new DataMigrationError(
