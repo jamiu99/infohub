@@ -29,7 +29,7 @@ watch(
   () => ({ id: a.value?.id, canShowOriginal: canShowOriginal.value }),
   (next, previous) => {
     if (!next.canShowOriginal) viewMode.value = 'reader'
-    else if (next.id !== previous?.id || !previous?.canShowOriginal) viewMode.value = 'original'
+    else if (next.id !== previous?.id || !previous?.canShowOriginal) viewMode.value = 'reader'
   },
   { immediate: true }
 )
@@ -65,24 +65,24 @@ async function reprocess(): Promise<void> {
     const skipped = result.items.find((item) => item.status === 'skipped')
     if (result.failed > 0) {
       reprocessMessageKind.value = 'error'
-      reprocessMessage.value = userFacingError(failed?.message, '重新抓取失败')
+      reprocessMessage.value = userFacingError(failed?.message, '重抓本篇失败')
     } else if (result.updated > 0) {
       reprocessMessageKind.value = 'success'
-      reprocessMessage.value = '重新抓取完成，正文已更新。'
+      reprocessMessage.value = '本篇重抓完成，正文已更新。'
     } else if (result.unchanged > 0) {
       reprocessMessageKind.value = 'success'
-      reprocessMessage.value = '重新抓取完成，正文没有变化。'
+      reprocessMessage.value = '本篇重抓完成，正文没有变化。'
     } else if (result.skipped > 0) {
       reprocessMessageKind.value = 'error'
-      reprocessMessage.value = userFacingError(skipped?.message, '这篇文章暂时无法重新抓取')
+      reprocessMessage.value = userFacingError(skipped?.message, '这篇文章暂时无法重抓')
     } else {
       reprocessMessageKind.value = 'error'
-      reprocessMessage.value = '没有找到可重新抓取的本机文章。'
+      reprocessMessage.value = '没有找到可重抓的本机文章。'
     }
   } catch (error) {
     if (a.value?.id !== articleId) return
     reprocessMessageKind.value = 'error'
-    reprocessMessage.value = userFacingError(error, '重新抓取失败')
+    reprocessMessage.value = userFacingError(error, '重抓本篇失败')
   } finally {
     reprocessBusy.value = false
   }
@@ -95,31 +95,27 @@ function publishedDate(ts: number): string {
 <template>
   <div v-if="a" class="detail-shell">
     <header class="detail-header">
+      <div class="source-line">
+        <span>{{ a.source.type === 'wechat' ? '微信公众号' : 'RSS' }}</span>
+        <strong>{{ a.source.name }}</strong>
+      </div>
       <h1>{{ a.title }}</h1>
+      <p v-if="digest" class="deck">{{ digest }}</p>
       <div class="meta">
         <span v-if="author">{{ author }}</span>
-        <span>{{ a.source.name }}</span>
         <span>{{ publishedDate(a.publishedAt) }}</span>
       </div>
       <div class="actions">
-        <button class="primary" @click="openOriginal">打开原文</button>
-        <button @click="archive">归档</button>
+        <button class="primary" @click="openOriginal">查看原文</button>
         <button
           class="reprocess"
           :disabled="maintenanceBusy"
-          title="重新访问原文并刷新本机正文"
+          title="只重新访问当前这一篇文章，不处理该来源其他历史"
           @click="reprocess"
         >
-          {{ reprocessBusy ? '重新抓取中…' : maintenanceBusy ? '维护进行中…' : '重新抓取' }}
+          {{ reprocessBusy ? '重抓本篇中…' : maintenanceBusy ? '历史任务进行中…' : '重抓本篇' }}
         </button>
-        <span
-          v-if="reprocessMessage"
-          class="reprocess-message"
-          :class="reprocessMessageKind"
-          role="status"
-        >
-          {{ reprocessMessage }}
-        </span>
+        <button class="quiet" @click="archive">归档文章</button>
         <div v-if="canShowOriginal" class="content-mode" role="group" aria-label="正文显示方式">
           <button
             :class="{ active: viewMode === 'original' }"
@@ -133,10 +129,18 @@ function publishedDate(ts: number): string {
             :aria-pressed="viewMode === 'reader'"
             @click="viewMode = 'reader'"
           >
-            阅读版
+            沉浸阅读
           </button>
         </div>
       </div>
+      <p
+        v-if="reprocessMessage"
+        class="reprocess-message"
+        :class="reprocessMessageKind"
+        role="status"
+      >
+        {{ reprocessMessage }}
+      </p>
     </header>
 
     <iframe
@@ -154,14 +158,15 @@ function publishedDate(ts: number): string {
       <div v-else class="content">
         <p class="placeholder">
           {{ digest || '正文尚未抓取。' }}<br />
-          <span class="dim">（手动刷新时会重试抓取完整正文与原始排版）</span>
+          <span class="dim">使用“重抓本篇”只处理当前文章；批量历史维护请前往“来源与抓取”。</span>
         </p>
       </div>
     </div>
   </div>
   <div v-else class="empty">
-    <p>选择一篇文章查看</p>
-    <p class="clock dim">{{ clockTime(Date.now()) }}</p>
+    <span class="empty-rule"></span>
+    <p>从左侧选择一篇文章</p>
+    <p class="clock dim">{{ clockTime(Date.now()) }} · 慢慢读</p>
   </div>
 </template>
 
@@ -171,33 +176,63 @@ function publishedDate(ts: number): string {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  background: var(--bg-reading);
 }
 .detail-header {
   flex: 0 0 auto;
-  width: min(100%, 800px);
+  width: min(100%, 860px);
   margin: 0 auto;
-  padding: 28px 40px 0;
+  padding: 38px 54px 0;
+}
+.source-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.source-line span {
+  padding: 2px 6px;
+  border: 1px solid var(--border-strong);
+  color: var(--accent-strong);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+}
+.source-line strong {
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
 }
 h1 {
-  font-size: 24px;
+  max-width: 760px;
+  margin: 0 0 13px;
+  font-family: var(--font-reading);
+  font-size: clamp(25px, 2.7vw, 34px);
   font-weight: 680;
-  line-height: 1.3;
-  margin: 0 0 14px;
-  letter-spacing: -0.2px;
+  line-height: 1.35;
+  letter-spacing: -0.5px;
+}
+.deck {
+  max-width: 720px;
+  margin: 0 0 15px;
+  color: var(--text-secondary);
+  font-family: var(--font-reading);
+  font-size: 14px;
+  line-height: 1.75;
 }
 .meta {
   display: flex;
   gap: 14px;
   color: var(--text-dim);
-  font-size: 12.5px;
+  font-size: 11.5px;
   flex-wrap: wrap;
 }
 .actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 20px;
-  padding-bottom: 20px;
+  margin-top: 22px;
+  padding-bottom: 18px;
   border-bottom: 1px solid var(--border);
 }
 .content-mode {
@@ -205,19 +240,22 @@ h1 {
   margin-left: auto;
   padding: 2px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
   background: var(--bg-subtle);
 }
 .reprocess {
-  color: var(--text-dim);
+  color: var(--accent-strong);
 }
 .reprocess-message {
-  max-width: 240px;
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--ok);
+  background: color-mix(in srgb, var(--ok) 7%, transparent);
   color: var(--ok);
   font-size: 11.5px;
   line-height: 1.4;
 }
 .reprocess-message.error {
+  border-left-color: var(--warn);
   color: var(--warn);
 }
 .content-mode button {
@@ -229,21 +267,21 @@ h1 {
 }
 .content-mode button.active {
   color: var(--text);
-  background: var(--bg-elevated);
-  box-shadow: var(--shadow-sm);
+  background: var(--bg-active);
 }
 .reading-scroll {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 40px 64px;
+  padding: 0 54px 90px;
 }
 .content {
-  width: min(100%, 720px);
+  width: min(100%, 690px);
   margin: 0 auto;
-  padding-top: 20px;
-  font-size: 15px;
-  line-height: 1.8;
+  padding-top: 30px;
+  font-family: var(--font-reading);
+  font-size: 16.5px;
+  line-height: 1.95;
   color: var(--text);
 }
 .original-frame {
@@ -255,21 +293,23 @@ h1 {
   background: #fff;
 }
 .content :deep(p) {
-  margin: 0 0 16px;
+  margin: 0 0 20px;
 }
 .content :deep(h1),
 .content :deep(h2),
 .content :deep(h3) {
-  font-size: 18px;
-  font-weight: 640;
-  margin: 28px 0 12px;
-  line-height: 1.4;
+  font-family: var(--font);
+  font-size: 20px;
+  font-weight: 680;
+  margin: 34px 0 14px;
+  line-height: 1.45;
 }
 .content :deep(img) {
   max-width: 100%;
   height: auto;
-  border-radius: var(--radius);
-  margin: 12px 0;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  margin: 18px 0;
   display: block;
 }
 .content :deep(a) {
@@ -280,9 +320,10 @@ h1 {
   text-decoration: underline;
 }
 .content :deep(blockquote) {
-  margin: 16px 0;
-  padding: 4px 16px;
-  border-left: 3px solid var(--border-strong);
+  margin: 22px 0;
+  padding: 8px 18px;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-subtle);
   color: var(--text-secondary);
 }
 .content :deep(ul) {
@@ -306,15 +347,23 @@ h1 {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   gap: 8px;
+  background: var(--bg-reading);
+  font-family: var(--font-reading);
+}
+.empty-rule {
+  width: 48px;
+  height: 1px;
+  margin-bottom: 8px;
+  background: var(--border-strong);
 }
 @media (max-width: 720px) {
   .detail-header {
-    padding-inline: 20px;
+    padding: 28px 22px 0;
   }
   .reading-scroll {
-    padding-inline: 20px;
+    padding-inline: 22px;
   }
   .actions {
     flex-wrap: wrap;

@@ -2,7 +2,7 @@
 
 > 上级：[overview.md](overview.md) · 数据接口：[data-interface.md](data-interface.md)
 
-最后更新：2026-07-15，v0.4.2 数据生命周期、图片消息与自动采集发布基线。
+最后更新：2026-07-15，v0.5.0 阅读体验与来源控制发布基线。
 
 ## 代码地图
 
@@ -27,6 +27,14 @@
 
 仓库已没有 AI CLI、Skill 安装器或 `core/agent` 目录。
 
+## 米色阅读体验与抓取语义升级（2026-07-15）
+
+- renderer 统一为固定米色纸张色阶与扁平边界；正文默认使用窄行宽、中文衬线字体和更舒展行距。顶部复用已入库透明 Logo，通过 CSS 居中放大裁剪，只展示图形中心且不生成新品牌资产。
+- 微信详情默认从原始排版调整为 Markdown“沉浸阅读”，仍可切换 iframe 原始排版；文章级动作明确命名为“重抓本篇”。
+- 新增独立“来源与抓取”设置页：每个公众号/RSS 可单独启停、拉取最新、取消关注；历史维护支持单源/全部和离线/联网四种组合，全部联网需要显式确认。
+- UI 与契约明确区分“拉取最新”和“处理已入库历史”：微信公众号前者仍只取最新一页，后者只处理已有 Article，均不会发现从未入库的更早文章。
+- 新增 `source:setEnabled` 与 `article:markAllRead` IPC；一键已读按当前 source 和 mine/team 范围逐篇写回文件，不受列表 500 条限制。核心测试增至 153 项。
+
 ## v0.4 数据生命周期与采集维护（2026-07-15）
 
 - 微信 parser v2 在经典 `#js_content` 之外支持 `item_show_type=8` 图片消息，安全读取 `window.cgiDataNew.picture_page_info_list` 和静态 `window.picture_page_info_list`；只取对象直接 `cdn_url/width/height` 与图注，不执行脚本、不把 watermark/分享封面当正文。
@@ -39,12 +47,12 @@
 - 外部 AI/Agent 只读 `articles/`，产物写 `outputs/<producer>/`；`raw/` 与 Article/sidecar 均不允许外部回写。
 - 新增核心单测覆盖图片消息静态解析、内容寻址快照、失败尝试保留、维护全量枚举、自动 timer/批次行为、跨来源请求间隔、资料库 bootstrap 与迁移故障路径。Service/IPC 已接通并通过 Electron smoke；Windows 跨盘迁移和真实账号多周期仍待人工验收。
 
-## v0.4.2 发布门禁
+## v0.5.0 发布门禁
 
 | 命令 | 结果 |
 |------|------|
 | `pnpm typecheck` | ✅ main/preload/core/shared + renderer 通过 |
-| `pnpm test:core` | ✅ 152/152，0 fail |
+| `pnpm test:core` | ✅ 153/153，0 fail |
 | `pnpm build` / `pnpm verify:bundle` | ✅ 生产构建、CJS preload、项目 logo 契约通过 |
 | `pnpm smoke:desktop` | ✅ 真实 Electron 中账号、自动采集、资料库 IPC、`srcdoc` iframe 与更新菜单通过 |
 | `git diff --check` | ✅ |
@@ -62,7 +70,7 @@
 - 经典图文改用 `parse5` 树定位 `#js_content`，同时保存 Markdown、内容寻址且由 Article 指向的正文 HTML sidecar，以及 SHA-256 命名的未改写 `.page.html`。
 - 展示 sidecar 提升 `data-src/data-original/data-backsrc`、补绝对 URL；原始页面不改写。正文 HTML/Markdown 不压缩、不使用 Base64。
 - Article frontmatter 增加内容状态、解析器版本、sidecar 路径、尝试/成功时间和错误；`seen_items` 命中后仍会为失败、正文 HTML/本机完整页面路径或文件缺失、或旧版本产物重试，失败不覆盖已有完整正文。
-- IPC 改成列表不载 HTML、详情按需读取；微信详情默认 iframe 原始排版，可切换 Markdown 阅读版，长正文具备独立滚动。
+- IPC 改成列表不载 HTML、详情按需读取；该版本最初默认 iframe 原始排版，2026-07-15 阅读体验升级后改为默认 Markdown 沉浸阅读，仍可切换原始排版。
 - 团队同步在 Article 有内容时直接携带 `contentHtml`；只同步 Markdown、正文 HTML 和 URL，不上传完整页面/Raw/凭据。
 - 测试期团队协议硬切 `/api/v2`，不维护 v1 fallback 或能力协商；同步先 status 后 push，push 按 12 MiB 实际 JSON 字节预算分批，pull 每页 50 条。v0.3.0 必须先升级服务端，再升级全部桌面端，混合版本不受支持。
 - 阅读/归档写回 Article 文件但不推进内容 `updatedAt`，避免状态操作改变团队 payload 或确定性 eventId。
@@ -71,7 +79,7 @@
 
 ## v0.3.1 发布自动化基线
 
-以下是已发布旧版本的门禁快照，不代表 v0.4.2 当前测试总数：
+以下是已发布旧版本的门禁快照，不代表 v0.5.0 当前测试总数：
 
 | 命令 | 结果 |
 |------|------|

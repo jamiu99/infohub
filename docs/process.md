@@ -68,7 +68,7 @@ RawItem
 
 ## 展示边界
 
-官方 `mp.weixin.qq.com` 正文 HTML 按产品决定视为可信内容，并放在 iframe 中隔离 CSS/布局；默认显示原始排版，也可切换到 Markdown 阅读版。静态快照不执行微信页面脚本，因此复杂动态组件仍可能需要“打开原文”。
+官方 `mp.weixin.qq.com` 正文 HTML 按产品决定视为可信内容；详情默认显示 Markdown 沉浸阅读，切换原始排版后才放进 iframe 隔离 CSS/布局。静态快照不执行微信页面脚本，因此复杂动态组件仍可能需要“查看原文”。
 
 RSS 与 Markdown 展示仍执行文本/属性转义、绝对 http(s) URL 白名单和 DOMPurify allowlist。Electron 页面继续使用 CSP、sandbox 与 main 外链 scheme 校验；原有 `javascript:`、`data:`、原始 `<script>` 与属性注入回归不删除。
 

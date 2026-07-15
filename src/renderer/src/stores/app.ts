@@ -91,7 +91,7 @@ export const store = {
       api.on('accounts-changed', () => void this.loadAccounts())
       api.on('articles-changed', () => {
         void this.refreshAll().catch((error) => {
-          state.articlesError = userFacingError(error, '刷新文章失败')
+          state.articlesError = userFacingError(error, '更新文章列表失败')
         })
       })
       api.on('team-status', (status) => {
@@ -301,6 +301,16 @@ export const store = {
     }
   },
 
+  async markCurrentArticlesRead(): Promise<number> {
+    const count = await api.article.markAllRead({
+      ...(state.selectedSourceId ? { sourceId: state.selectedSourceId } : {}),
+      scope: state.articleScope
+    })
+    if (state.selectedArticle && !state.selectedArticle.archived) state.selectedArticle.read = true
+    await Promise.all([this.loadSources(), this.loadArticles()])
+    return count
+  },
+
   async reprocessArticles(input: ArticleMaintenanceRequest): Promise<ArticleMaintenanceResult> {
     if (state.articleMaintenanceBusy) {
       throw new Error('已有历史正文维护任务正在执行，请等待完成后再试。')
@@ -397,6 +407,10 @@ export const store = {
     const plain = JSON.parse(JSON.stringify(r)) as DiscoverResult
     await api.source.add(type, plain)
     await this.refreshAll()
+  },
+  async setSourceEnabled(id: string, enabled: boolean): Promise<void> {
+    await api.source.setEnabled(id, enabled)
+    await this.loadSources()
   },
   async removeSource(id: string): Promise<void> {
     await api.source.remove(id)

@@ -175,6 +175,38 @@ test('阅读/归档状态同时写入文件与索引，重建后保持', () => {
   }
 })
 
+test('一键已读按来源与阅读范围处理全部未归档文章，不受列表上限影响', () => {
+  const { store, dir } = freshStore()
+  try {
+    const mineA = store.saveArticle(maintenanceArticle('mine-a', 'wx-a', 'wechat'))
+    const mineB = store.saveArticle(maintenanceArticle('mine-b', 'wx-b', 'wechat'))
+    const remoteA = store.saveArticle(
+      maintenanceArticle('remote-a', 'wx-a', 'wechat', { contributedByMe: false })
+    )
+    const archivedA = store.saveArticle(
+      maintenanceArticle('archived-a', 'wx-a', 'wechat', { archived: true })
+    )
+
+    assert.equal(store.markAllRead({ sourceId: 'wx-a', scope: 'mine' }), 1)
+    assert.equal(store.getArticle(mineA.id)?.read, true)
+    assert.equal(store.getArticle(mineB.id)?.read, false)
+    assert.equal(store.getArticle(remoteA.id)?.read, false)
+    assert.equal(store.getArticle(archivedA.id)?.read, false)
+
+    assert.equal(store.markAllRead({ sourceId: 'wx-a', scope: 'team' }), 1)
+    assert.equal(store.getArticle(remoteA.id)?.read, true)
+    assert.equal(store.markAllRead({ scope: 'mine' }), 1)
+    assert.equal(store.getArticle(mineB.id)?.read, true)
+
+    store.rebuildIndex()
+    assert.equal(store.getArticle(mineA.id)?.read, true)
+    assert.equal(store.getArticle(remoteA.id)?.read, true)
+  } finally {
+    store.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('重建索引：删库后从 md 文件重灌', () => {
   const { store, dir } = freshStore()
   try {

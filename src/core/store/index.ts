@@ -516,6 +516,22 @@ export class Store {
     this.updateArticle(id, { read })
   }
 
+  markAllRead(opts: { sourceId?: string; scope?: 'mine' | 'team' } = {}): number {
+    this.syncIndexFromFiles(true)
+    const where = ['read = 0', 'archived = 0']
+    const params: string[] = []
+    if ((opts.scope ?? 'mine') === 'mine') where.push('contributed_by_me = 1')
+    if (opts.sourceId) {
+      where.push('source_id = ?')
+      params.push(opts.sourceId)
+    }
+    const rows = this.db
+      .prepare(`SELECT id FROM articles WHERE ${where.join(' AND ')} ORDER BY published_at DESC`)
+      .all(...params) as Array<{ id: string }>
+    for (const row of rows) this.setRead(row.id, true)
+    return rows.length
+  }
+
   setArchived(id: string, archived: boolean): void {
     this.updateArticle(id, { archived })
   }

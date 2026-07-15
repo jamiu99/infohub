@@ -6,6 +6,7 @@ import ArticleFlow from './components/ArticleFlow.vue'
 import ArticleDetail from './components/ArticleDetail.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import UpdateBanner from './components/UpdateBanner.vue'
+import brandLogoUrl from '../../../resources/branding/infohub-icon-v1.png'
 import {
   MIN_PANE_WIDTH,
   defaultLayout,
@@ -16,6 +17,7 @@ import {
 } from './layout'
 
 const LAYOUT_STORAGE_KEY = 'infohub.layout.v1'
+type SettingsSection = 'sources' | 'accounts' | 'library' | 'team' | 'appearance' | 'update'
 
 const paneDefinitions = [
   { id: 'sources' as const, label: '信源', component: SourceList },
@@ -33,6 +35,7 @@ function loadLayout(): LayoutPreferences {
 
 const layout = reactive<LayoutPreferences>(loadLayout())
 const showSettings = ref(false)
+const settingsSection = ref<SettingsSection>('sources')
 const paneElements: Partial<Record<PaneId, HTMLElement>> = {}
 const visiblePanes = computed(() => paneDefinitions.filter((pane) => layout[pane.id].visible))
 let removeResizeListeners: (() => void) | null = null
@@ -66,6 +69,11 @@ function resetLayout(): void {
     layout[id].size = next[id].size
   }
   saveLayout()
+}
+
+function openSettings(section: SettingsSection = 'sources'): void {
+  settingsSection.value = section
+  showSettings.value = true
 }
 
 function currentPair(leftId: PaneId, rightId: PaneId): [number, number] | null {
@@ -141,7 +149,7 @@ function resizeByKeyboard(event: KeyboardEvent, leftId: PaneId, rightId: PaneId)
 function handleGlobalKey(event: KeyboardEvent): void {
   if (event.key === ',' && (event.ctrlKey || event.metaKey)) {
     event.preventDefault()
-    showSettings.value = true
+    openSettings('sources')
   }
 }
 
@@ -159,7 +167,15 @@ onBeforeUnmount(() => {
 <template>
   <div class="app-shell">
     <header class="app-toolbar">
-      <div class="brand"><span class="brand-mark"></span><span>infohub</span></div>
+      <div class="brand" aria-label="infohub 阅读工作台">
+        <span class="brand-logo-crop" aria-hidden="true">
+          <img :src="brandLogoUrl" alt="" />
+        </span>
+        <span class="brand-copy">
+          <strong>infohub</strong>
+          <small>阅读工作台</small>
+        </span>
+      </div>
       <div class="toolbar-actions">
         <div class="view-switcher" role="group" aria-label="显示或隐藏阅读栏目">
           <button
@@ -174,7 +190,10 @@ onBeforeUnmount(() => {
             {{ pane.label }}
           </button>
         </div>
-        <button class="settings-button" title="设置（Ctrl/Cmd + ,）" @click="showSettings = true">
+        <button class="source-settings-button" @click="openSettings('sources')">
+          来源与抓取
+        </button>
+        <button class="settings-button" title="设置（Ctrl/Cmd + ,）" @click="openSettings('accounts')">
           设置
         </button>
       </div>
@@ -212,6 +231,7 @@ onBeforeUnmount(() => {
 
     <SettingsDialog
       v-if="showSettings"
+      :initial-section="settingsSection"
       @close="showSettings = false"
       @reset-layout="resetLayout"
     />
@@ -225,36 +245,61 @@ onBeforeUnmount(() => {
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
-  background: var(--bg);
+  background: var(--bg-canvas);
 }
 .app-toolbar {
   position: relative;
   z-index: 20;
-  flex: 0 0 44px;
+  flex: 0 0 58px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 0 10px 0 14px;
+  padding: 0 14px 0 16px;
   border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+  background: var(--bg-toolbar);
 }
 .brand {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
-  font-size: 14px;
-  font-weight: 680;
-  letter-spacing: 0.15px;
+  color: var(--text);
 }
-.brand-mark {
-  width: 10px;
-  height: 10px;
+.brand-logo-crop {
+  position: relative;
+  width: 34px;
+  height: 34px;
   flex: 0 0 auto;
-  border-radius: 3px;
-  background: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--bg-elevated);
+}
+.brand-logo-crop img {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 76px;
+  height: 76px;
+  max-width: none;
+  transform: translate(-50%, -50%);
+}
+.brand-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+.brand-copy strong {
+  font-size: 14px;
+  font-weight: 720;
+  letter-spacing: 0.2px;
+}
+.brand-copy small {
+  margin-top: 3px;
+  color: var(--text-dim);
+  font-size: 10.5px;
 }
 .toolbar-actions,
 .view-switcher {
@@ -272,28 +317,33 @@ onBeforeUnmount(() => {
   background: var(--bg-subtle);
 }
 .view-button,
+.source-settings-button,
 .settings-button {
-  min-height: 28px;
-  padding: 3px 10px;
+  min-height: 30px;
+  padding: 4px 11px;
   border-color: transparent;
   background: transparent;
   color: var(--text-dim);
   box-shadow: none;
 }
 .view-button.active {
-  background: var(--bg-elevated);
+  background: var(--bg-active);
   color: var(--text);
-  box-shadow: var(--shadow-sm);
 }
 .view-button:hover,
+.source-settings-button:hover,
 .settings-button:hover {
   color: var(--text);
   background: var(--bg-hover);
 }
+.source-settings-button,
 .settings-button {
   border-color: var(--border);
   background: var(--bg-elevated);
   color: var(--text-secondary);
+}
+.source-settings-button {
+  color: var(--accent-strong);
 }
 .workspace {
   display: flex;
@@ -311,30 +361,32 @@ onBeforeUnmount(() => {
 .pane-sources {
   background: var(--bg-sidebar);
 }
-.pane-flow,
-.pane-detail {
+.pane-flow {
   background: var(--bg);
+}
+.pane-detail {
+  background: var(--bg-reading);
 }
 .resize-handle {
   position: relative;
   z-index: 10;
-  flex: 0 0 7px;
-  width: 7px;
+  flex: 0 0 5px;
+  width: 5px;
   cursor: col-resize;
   outline: none;
-  background: var(--bg);
+  background: var(--bg-canvas);
   touch-action: none;
 }
 .resize-handle::after {
   content: '';
   position: absolute;
-  inset: 0 3px;
+  inset: 0 2px;
   background: var(--border);
   transition: inset 0.12s, background 0.12s;
 }
 .resize-handle:hover::after,
 .resize-handle:focus-visible::after {
-  inset: 0 2px;
+  inset: 0 1px;
   background: var(--accent);
 }
 .all-hidden {
@@ -353,7 +405,10 @@ onBeforeUnmount(() => {
   .app-toolbar {
     gap: 8px;
   }
-  .brand span:last-child {
+  .brand-copy small {
+    display: none;
+  }
+  .source-settings-button {
     display: none;
   }
   .view-button,

@@ -418,6 +418,17 @@ export class Service {
       this.runInitialCollection(source.id)
       return source
     })
+    this.handle(IPC.sourceSetEnabled, (rawSourceId, rawEnabled) => {
+      const sourceId = typeof rawSourceId === 'string' ? rawSourceId.trim() : ''
+      if (!sourceId || typeof rawEnabled !== 'boolean') throw new Error('信源启停参数无效')
+      const sources = this.store.listSources()
+      const index = sources.findIndex((source) => source.id === sourceId)
+      if (index < 0) throw new Error('信源不存在或已取消关注')
+      const source = { ...sources[index], enabled: rawEnabled }
+      sources[index] = source
+      this.store.saveSources(sources)
+      return source
+    })
     this.handle(IPC.sourceRemove, (id) => {
       const sourceId = id as string
       this.store.saveSources(this.store.listSources().filter((source) => source.id !== sourceId))
@@ -444,6 +455,25 @@ export class Service {
     this.handle(IPC.articleMarkRead, (id, read) =>
       this.store.setRead(id as string, read as boolean)
     )
+    this.handle(IPC.articleMarkAllRead, (rawOptions) => {
+      if (
+        rawOptions !== undefined &&
+        (!rawOptions || typeof rawOptions !== 'object' || Array.isArray(rawOptions))
+      ) {
+        throw new Error('批量已读范围无效')
+      }
+      const input = (rawOptions ?? {}) as { sourceId?: unknown; scope?: unknown }
+      if (input.sourceId !== undefined && typeof input.sourceId !== 'string') {
+        throw new Error('批量已读来源无效')
+      }
+      const sourceId = typeof input.sourceId === 'string' ? input.sourceId.trim() : ''
+      const scope = input.scope ?? 'mine'
+      if (scope !== 'mine' && scope !== 'team') throw new Error('批量已读范围无效')
+      return this.store.markAllRead({
+        ...(sourceId ? { sourceId } : {}),
+        scope
+      })
+    })
     this.handle(IPC.articleArchive, (id) => this.store.setArchived(id as string, true))
     this.handle(IPC.articleUnreadCounts, () => this.store.unreadCounts())
     this.handle(IPC.articleReprocess, (request) => this.reprocessArticles(request))

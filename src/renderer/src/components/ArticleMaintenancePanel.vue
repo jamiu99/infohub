@@ -9,15 +9,28 @@ import { store } from '../stores/app'
 
 type MaintenanceScope = 'source' | 'all'
 
+const props = defineProps<{ sourceId?: string | null }>()
 const selectedSource = computed(() =>
-  store.state.sources.find((source) => source.id === store.state.selectedSourceId)
+  store.state.sources.find((source) => source.id === props.sourceId)
 )
-const scope = ref<MaintenanceScope>(selectedSource.value ? 'source' : 'all')
-const runningMode = ref<ArticleMaintenanceMode | null>(null)
+const scope = ref<MaintenanceScope>(props.sourceId ? 'source' : 'all')
+const mode = ref<ArticleMaintenanceMode>('offline')
+const confirmAllNetwork = ref(false)
+const running = ref(false)
 const message = ref('')
 const messageKind = ref<'success' | 'warning' | 'error'>('success')
 const result = ref<ArticleMaintenanceResult | null>(null)
 const busy = computed(() => store.state.articleMaintenanceBusy)
+const networkAllBlocked = computed(
+  () => scope.value === 'all' && mode.value === 'network' && !confirmAllNetwork.value
+)
+
+const actionLabel = computed(() => {
+  const range = scope.value === 'source' ? '该来源' : '全部来源'
+  return mode.value === 'offline'
+    ? `离线重解析${range}历史`
+    : `联网重抓${range}已入库历史`
+})
 
 const resultSummary = computed(() => {
   const value = result.value
@@ -39,31 +52,37 @@ const failedItems = computed(() =>
 )
 
 watch(
-  () => store.state.selectedSourceId,
+  () => props.sourceId,
   (sourceId) => {
     if (!sourceId && scope.value === 'source') scope.value = 'all'
   }
 )
 
-async function run(mode: ArticleMaintenanceMode): Promise<void> {
-  if (busy.value) return
+watch([scope, mode], () => {
+  confirmAllNetwork.value = false
+  message.value = ''
+  result.value = null
+})
+
+async function run(): Promise<void> {
+  if (busy.value || running.value || networkAllBlocked.value) return
   const sourceId = selectedSource.value?.id
   if (scope.value === 'source' && !sourceId) {
     messageKind.value = 'error'
-    message.value = '请先在主界面选择一个信源，或改为处理全部本机文章。'
+    message.value = '请先从左侧选择一个来源，或改为处理全部来源。'
     return
   }
 
-  runningMode.value = mode
-  message.value = mode === 'offline'
-    ? '正在读取本机快照并重新解析，请稍候…'
-    : '正在逐篇访问原文，文章较多时可能需要一段时间…'
+  running.value = true
+  message.value = mode.value === 'offline'
+    ? '正在读取不可变本机快照并重建正文…'
+    : '正在逐篇访问已入库文章的原文地址…'
   messageKind.value = 'success'
   result.value = null
 
   try {
     result.value = await store.reprocessArticles({
-      mode,
+      mode: mode.value,
       scope: scope.value,
       ...(scope.value === 'source' && sourceId ? { sourceId } : {})
     })
@@ -71,56 +90,85 @@ async function run(mode: ArticleMaintenanceMode): Promise<void> {
       ? 'warning'
       : 'success'
     message.value = result.value.total > 0
-      ? (mode === 'offline' ? '本机快照重新解析完成。' : '原文重新抓取完成。')
-      : '没有找到符合当前范围的本机文章。'
+      ? (mode.value === 'offline' ? '本机历史正文重新解析完成。' : '已入库历史正文联网重抓完成。')
+      : '没有找到符合当前范围、且支持这种处理方式的本机文章。'
   } catch (error) {
     messageKind.value = 'error'
     message.value = userFacingError(
       error,
-      mode === 'offline' ? '本机快照重新解析失败' : '重新访问原文失败'
+      mode.value === 'offline' ? '本机快照重新解析失败' : '历史正文联网重抓失败'
     )
   } finally {
-    runningMode.value = null
+    running.value = false
   }
 }
 </script>
 
 <template>
   <section class="maintenance-card">
-    <div class="heading">
+    <header class="heading">
       <div>
-        <strong>历史正文维护</strong>
-        <p>修复旧文章的正文解析，或重新访问原文获取最新可用页面。</p>
+        <span class="kicker">HISTORY</span>
+        <strong>处理已入库历史</strong>
+        <p>这里不会发现从未入库的更早文章；单篇正文请在阅读页使用“重抓本篇”。</p>
       </div>
-    </div>
+    </header>
 
-    <fieldset :disabled="busy" class="scope-picker">
-      <legend>处理范围</legend>
-      <label :class="{ disabled: !selectedSource }">
+    <fieldset :disabled="busy || running" class="choice-group">
+      <legend>第一步 · 选择范围</legend>
+      <label class="choice" :class="{ disabled: !selectedSource }">
         <input v-model="scope" type="radio" value="source" :disabled="!selectedSource" />
         <span>
-          当前选中信源
-          <small>{{ selectedSource ? `（${selectedSource.name}）` : '（主界面尚未选择）' }}</small>
+          <strong>单个来源</strong>
+          <small>{{ selectedSource ? selectedSource.name : '先从左侧选择来源' }}</small>
         </span>
       </label>
-      <label>
+      <label class="choice">
         <input v-model="scope" type="radio" value="all" />
-        <span>全部本机文章</span>
+        <span>
+          <strong>全部来源</strong>
+          <small>全部本机贡献的已入库文章，包含已归档文章</small>
+        </span>
       </label>
     </fieldset>
 
-    <div class="actions">
-      <button class="primary" :disabled="busy" @click="run('offline')">
-        {{ runningMode === 'offline' ? '正在重新解析…' : '用本机快照重新解析（不联网）' }}
-      </button>
-      <button :disabled="busy" @click="run('network')">
-        {{ runningMode === 'network' ? '正在访问原文…' : '重新访问原文' }}
-      </button>
-    </div>
+    <fieldset :disabled="busy || running" class="choice-group mode-group">
+      <legend>第二步 · 选择处理方式</legend>
+      <label class="choice mode-choice">
+        <input v-model="mode" type="radio" value="offline" />
+        <span>
+          <strong>本机快照重新解析</strong>
+          <small>不联网，不改 Raw；适合解析器升级后批量重建阅读正文</small>
+        </span>
+        <em>安全</em>
+      </label>
+      <label class="choice mode-choice">
+        <input v-model="mode" type="radio" value="network" />
+        <span>
+          <strong>联网重抓已入库正文</strong>
+          <small>逐篇访问现有文章 URL；不翻页发现未入库历史，可能触发限流</small>
+        </span>
+        <em class="network">联网</em>
+      </label>
+    </fieldset>
 
-    <div class="notice">
-      <p>离线解析只会重建展示用正文，不修改原始快照。</p>
-      <p class="risk">联网重抓会逐篇访问原网站，可能耗时较长并触发站点限流；请勿频繁对全部文章执行。</p>
+    <label v-if="scope === 'all' && mode === 'network'" class="risk-confirm">
+      <input v-model="confirmAllNetwork" type="checkbox" />
+      <span>我确认要逐篇联网访问全部已入库历史；任务可能耗时较长。</span>
+    </label>
+
+    <div class="run-row">
+      <div class="run-summary">
+        <strong>{{ scope === 'source' ? `范围：${selectedSource?.name || '未选择'}` : '范围：全部本机来源' }}</strong>
+        <span>{{ mode === 'offline' ? '网络：不联网' : '网络：逐篇访问原文' }}</span>
+      </div>
+      <button
+        class="primary"
+        :disabled="busy || running || networkAllBlocked || (scope === 'source' && !selectedSource)"
+        @click="run"
+      >
+        {{ running ? '处理中…' : actionLabel }}
+      </button>
     </div>
 
     <div
@@ -146,80 +194,145 @@ async function run(mode: ArticleMaintenanceMode): Promise<void> {
 
 <style scoped>
 .maintenance-card {
-  margin-top: 16px;
-  padding: 16px;
+  padding: 17px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
   background: var(--bg-subtle);
 }
+.heading strong {
+  display: block;
+  font-size: 14px;
+}
 .heading p,
-.notice p,
 .result p,
 .result ul {
   margin: 4px 0 0;
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.6;
 }
-.heading p,
-.notice {
+.heading p {
   color: var(--text-dim);
 }
-.scope-picker {
+.kicker {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+.choice-group {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin: 16px 0 0;
   padding: 14px 0 0;
   border: 0;
   border-top: 1px solid var(--border);
 }
-.scope-picker legend {
+.choice-group legend {
   float: left;
   width: 100%;
-  margin-bottom: 8px;
+  margin-bottom: 9px;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 650;
 }
-.scope-picker label {
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  cursor: pointer;
+}
+.choice:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.choice.disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.choice span {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+.choice strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+.choice small {
+  margin-top: 3px;
+  color: var(--text-dim);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+.mode-choice em {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--border));
+  color: var(--ok);
+  font-size: 9px;
+  font-style: normal;
+}
+.mode-choice em.network {
+  border-color: color-mix(in srgb, var(--warn) 42%, var(--border));
+  color: var(--warn);
+}
+.risk-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px;
+  border-left: 3px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 7%, var(--bg-elevated));
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.run-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-.scope-picker label.disabled {
-  color: var(--text-dim);
-}
-.scope-picker small {
-  color: var(--text-dim);
-  font-size: 11.5px;
-}
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 16px;
   margin-top: 16px;
 }
-.actions button {
-  min-height: 32px;
+.run-summary {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
 }
-.notice {
-  margin-top: 12px;
+.run-summary strong {
+  overflow: hidden;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.notice .risk {
-  color: color-mix(in srgb, var(--warn) 82%, var(--text));
+.run-summary span {
+  margin-top: 2px;
+  color: var(--text-dim);
+  font-size: 10.5px;
+}
+.run-row button {
+  flex: 0 0 auto;
 }
 .result {
   margin-top: 14px;
   padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--ok) 35%, var(--border));
-  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--ok);
   color: var(--ok);
-  background: color-mix(in srgb, var(--ok) 6%, transparent);
+  background: color-mix(in srgb, var(--ok) 7%, var(--bg-elevated));
 }
 .result.warning,
 .result.error {
-  border-color: color-mix(in srgb, var(--warn) 38%, var(--border));
+  border-left-color: var(--warn);
   color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 6%, transparent);
+  background: color-mix(in srgb, var(--warn) 7%, var(--bg-elevated));
 }
 .result p,
 .result ul {
@@ -231,12 +344,13 @@ async function run(mode: ArticleMaintenanceMode): Promise<void> {
 .result .more {
   color: var(--text-dim);
 }
-@media (max-width: 620px) {
-  .actions {
-    flex-direction: column;
+@media (max-width: 680px) {
+  .choice-group {
+    grid-template-columns: 1fr;
   }
-  .actions button {
-    width: 100%;
+  .run-row {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 </style>

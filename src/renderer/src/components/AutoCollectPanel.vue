@@ -26,7 +26,7 @@ watch(
 
 const statusText = computed(() => {
   const value = status.value
-  if (!value || !value.enabled || value.state === 'disabled') return '当前关闭，只在你手动刷新时采集。'
+  if (!value || !value.enabled || value.state === 'disabled') return '当前关闭，只在你手动“拉取最新”时采集。'
   if (value.state === 'running') return '正在执行本轮自动采集。'
   const nextRun = value.nextRunAt
     ? `下一轮：${new Date(value.nextRunAt).toLocaleString()}`
@@ -70,7 +70,7 @@ async function save(): Promise<void> {
     <div class="heading">
       <div>
         <strong>自动采集内容</strong>
-        <p>定时刷新已启用的公众号和 RSS；这不是软件版本更新。</p>
+        <p>定时拉取已启用公众号和 RSS 的最新列表；不会回溯未入库历史。</p>
       </div>
       <label class="toggle">
         <input v-model="enabled" type="checkbox" :disabled="saving" @change="save" />

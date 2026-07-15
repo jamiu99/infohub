@@ -1,55 +1,36 @@
-/* 设计系统 —— 现代简约 / 类 Linear。
-   中性灰阶为主、克制的强调色、清晰的字体层级与间距刻度。 */
+/* 设计系统 —— 米色纸张、扁平层级、克制的青绿色强调。 */
 :root {
-  /* 中性灰阶（浅色） */
-  --bg: #ffffff;
-  --bg-sidebar: #fbfbfc;
-  --bg-elevated: #ffffff;
-  --bg-hover: #f4f4f5;
-  --bg-active: #eef2fb;
-  --bg-subtle: #f7f7f8;
-  --border: #ececee;
-  --border-strong: #dcdce0;
-  --text: #17171a;
-  --text-secondary: #55555c;
-  --text-dim: #9b9ba1;
-  /* 强调与语义色 */
-  --accent: #5b6cff;
-  --accent-hover: #4a5ae8;
-  --accent-soft: #eef0ff;
-  --unread: #5b6cff;
-  --ok: #2fa96b;
-  --warn: #e0563b;
-  --cooldown: #d99a2b;
-  /* 刻度 */
-  --radius: 8px;
-  --radius-sm: 6px;
-  --radius-lg: 12px;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.1);
+  --bg-canvas: #e8dfd0;
+  --bg-toolbar: #efe6d7;
+  --bg: #f5efe4;
+  --bg-reading: #faf5eb;
+  --bg-sidebar: #eee5d6;
+  --bg-elevated: #fbf7ef;
+  --bg-hover: #e9dfcf;
+  --bg-active: #dfd3bf;
+  --bg-subtle: #f0e8dc;
+  --border: #d9ccb8;
+  --border-strong: #c6b69e;
+  --text: #302a22;
+  --text-secondary: #665d50;
+  --text-dim: #918573;
+  --accent: #2e756b;
+  --accent-strong: #205e57;
+  --accent-hover: #245f57;
+  --accent-soft: #dce9e2;
+  --unread: #b05d3e;
+  --ok: #47755d;
+  --warn: #a34f38;
+  --cooldown: #a8752f;
+  --radius: 7px;
+  --radius-sm: 5px;
+  --radius-lg: 10px;
+  --shadow-sm: none;
+  --shadow-md: 0 14px 38px rgba(67, 52, 34, 0.16);
   --font: -apple-system, "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC",
     "Microsoft YaHei", "WenQuanYi Micro Hei", system-ui, sans-serif;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #161619;
-    --bg-sidebar: #1b1b1f;
-    --bg-elevated: #202024;
-    --bg-hover: #26262b;
-    --bg-active: #262b45;
-    --bg-subtle: #1e1e22;
-    --border: #2a2a30;
-    --border-strong: #3a3a42;
-    --text: #ececee;
-    --text-secondary: #b4b4bc;
-    --text-dim: #77777f;
-    --accent: #7885ff;
-    --accent-hover: #8e99ff;
-    --accent-soft: #23273f;
-    --unread: #7885ff;
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 6px 24px rgba(0, 0, 0, 0.45);
-  }
+  --font-reading: "Noto Serif CJK SC", "Noto Serif SC", "Source Han Serif SC",
+    "Songti SC", "STSong", Georgia, serif;
 }
 * {
   box-sizing: border-box;
@@ -62,7 +43,7 @@ body {
   font-size: 13.5px;
   line-height: 1.5;
   color: var(--text);
-  background: var(--bg);
+  background: var(--bg-canvas);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -91,6 +72,16 @@ button.primary {
   color: #fff;
   border-color: var(--accent);
 }
+button.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-secondary);
+}
+button.danger {
+  border-color: color-mix(in srgb, var(--warn) 40%, var(--border));
+  color: var(--warn);
+  background: transparent;
+}
 button.primary:hover {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
@@ -110,6 +101,11 @@ select {
   width: 100%;
   outline: none;
   transition: border-color 0.12s, box-shadow 0.12s;
+}
+input[type='checkbox'],
+input[type='radio'] {
+  width: auto;
+  accent-color: var(--accent);
 }
 input:focus,
 select:focus {

@@ -18,6 +18,17 @@ export interface IngestProgress {
   waitingUntil?: number // 全账号不可用时，预计恢复时刻
 }
 
+export interface ArticleListOptions {
+  sourceId?: string
+  filter?: 'unread' | 'all' | 'archived'
+  scope?: 'mine' | 'team'
+}
+
+export interface MarkAllReadOptions {
+  sourceId?: string
+  scope?: 'mine' | 'team'
+}
+
 /** renderer 可调用的 API（在 preload 里实现为 ipcRenderer.invoke 包装） */
 export interface InfohubApi {
   // —— 账号 ——
@@ -55,19 +66,19 @@ export interface InfohubApi {
     search(type: string, query: string): Promise<DiscoverResult[]>
     /** 添加关注并后台采集。type 决定信源类型 */
     add(type: string, result: DiscoverResult): Promise<Source>
+    /** 控制该信源是否参加“全部拉取”和自动采集；单源手动拉取仍可执行。 */
+    setEnabled(sourceId: string, enabled: boolean): Promise<Source>
     remove(sourceId: string): Promise<void>
-    /** 手动刷新单个号或全部（传 undefined 刷全部） */
+    /** 拉取单个来源或全部 enabled 来源的最新列表；不负责历史回溯。 */
     refresh(sourceId?: string): Promise<void>
   }
   // —— 文章 ——
   article: {
-    list(opts?: {
-      sourceId?: string
-      filter?: 'unread' | 'all' | 'archived'
-      scope?: 'mine' | 'team'
-    }): Promise<Article[]>
+    list(opts?: ArticleListOptions): Promise<Article[]>
     get(id: string): Promise<ArticleDetail | null>
     markRead(id: string, read: boolean): Promise<void>
+    /** 将当前来源/阅读范围内所有未归档文章标为已读，不受列表 500 条上限影响。 */
+    markAllRead(opts?: MarkAllReadOptions): Promise<number>
     archive(id: string): Promise<void>
     unreadCounts(): Promise<Record<string, number>> // sourceId → 未读数
     /** 从本机快照离线重建，或重新请求原文；原始快照永不被覆盖。 */
@@ -119,11 +130,13 @@ export const IPC = {
   sourceList: 'source:list',
   sourceSearch: 'source:search',
   sourceAdd: 'source:add',
+  sourceSetEnabled: 'source:setEnabled',
   sourceRemove: 'source:remove',
   sourceRefresh: 'source:refresh',
   articleList: 'article:list',
   articleGet: 'article:get',
   articleMarkRead: 'article:markRead',
+  articleMarkAllRead: 'article:markAllRead',
   articleArchive: 'article:archive',
   articleUnreadCounts: 'article:unreadCounts',
   articleReprocess: 'article:reprocess',

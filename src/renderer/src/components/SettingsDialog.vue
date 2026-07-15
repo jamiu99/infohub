@@ -1,17 +1,20 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { store } from '../stores/app'
 import { userFacingError } from '../../../shared/errors'
 import QuotaPanel from './QuotaPanel.vue'
 import TeamPanel from './TeamPanel.vue'
 import AutoCollectPanel from './AutoCollectPanel.vue'
-import ArticleMaintenancePanel from './ArticleMaintenancePanel.vue'
 import DataLibraryPanel from './DataLibraryPanel.vue'
+import SourceSettingsPanel from './SourceSettingsPanel.vue'
 
-type Section = 'collection' | 'library' | 'team' | 'appearance' | 'update'
+type Section = 'sources' | 'accounts' | 'library' | 'team' | 'appearance' | 'update'
 
+const props = withDefaults(defineProps<{ initialSection?: Section }>(), {
+  initialSection: 'sources'
+})
 const emit = defineEmits<{ close: []; 'reset-layout': [] }>()
-const active = ref<Section>('collection')
+const active = ref<Section>(props.initialSection)
 const update = computed(() => store.state.update)
 const updateBusy = computed(
   () => update.value?.state === 'checking' || update.value?.state === 'downloading'
@@ -30,6 +33,11 @@ const updateDescription = computed(() => {
   return userFacingError(value.message, '检查更新失败')
 })
 
+watch(
+  () => props.initialSection,
+  (value) => (active.value = value)
+)
+
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') emit('close')
 }
@@ -44,15 +52,18 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       <header class="settings-header">
         <div>
           <h2>设置</h2>
-          <p>采集、资料库、团队、界面和软件选项集中在这里。</p>
+          <p>来源、抓取范围、自动化与阅读偏好。</p>
         </div>
         <button class="close" aria-label="关闭设置" title="关闭" @click="emit('close')">×</button>
       </header>
 
       <div class="settings-body">
         <nav class="settings-nav" aria-label="设置分类">
-          <button :class="{ active: active === 'collection' }" @click="active = 'collection'">
-            采集与账号
+          <button :class="{ active: active === 'sources' }" @click="active = 'sources'">
+            来源与抓取
+          </button>
+          <button :class="{ active: active === 'accounts' }" @click="active = 'accounts'">
+            账号与自动化
           </button>
           <button :class="{ active: active === 'library' }" @click="active = 'library'">
             数据资料库
@@ -70,14 +81,23 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         </nav>
 
         <div class="settings-content">
-          <section v-if="active === 'collection'" class="settings-section">
+          <section v-if="active === 'sources'" class="settings-section settings-section-wide">
             <div class="section-heading">
-              <h3>采集与账号</h3>
-              <p>管理登录状态、请求保护、自动采集和历史正文维护。</p>
+              <span class="eyebrow">CONTENT SOURCES</span>
+              <h3>来源与抓取</h3>
+              <p>逐个管理公众号，并明确区分“拉取最新”和“处理已入库历史”。</p>
+            </div>
+            <SourceSettingsPanel />
+          </section>
+
+          <section v-else-if="active === 'accounts'" class="settings-section">
+            <div class="section-heading">
+              <span class="eyebrow">AUTOMATION</span>
+              <h3>账号与自动化</h3>
+              <p>管理微信登录、请求保护与全局自动采集周期。</p>
             </div>
             <QuotaPanel />
             <AutoCollectPanel />
-            <ArticleMaintenancePanel />
           </section>
 
           <section v-else-if="active === 'library'" class="settings-section">
@@ -147,17 +167,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(12, 12, 15, 0.48);
-  backdrop-filter: blur(2px);
+  background: rgba(54, 43, 29, 0.42);
 }
 .settings-dialog {
   display: flex;
   flex-direction: column;
-  width: min(860px, 100%);
-  height: min(700px, calc(100vh - 48px));
+  width: min(1040px, 100%);
+  height: min(760px, calc(100vh - 48px));
   overflow: hidden;
   border: 1px solid var(--border-strong);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   background: var(--bg-elevated);
   box-shadow: var(--shadow-md);
 }
@@ -167,7 +186,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
-  padding: 18px 20px 15px;
+  padding: 20px 24px 17px;
   border-bottom: 1px solid var(--border);
 }
 .settings-header h2,
@@ -198,15 +217,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 .settings-body {
   display: grid;
-  grid-template-columns: 154px minmax(0, 1fr);
+  grid-template-columns: 184px minmax(0, 1fr);
   flex: 1 1 auto;
   min-height: 0;
 }
 .settings-nav {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 12px 10px;
+  gap: 4px;
+  padding: 16px 12px;
   border-right: 1px solid var(--border);
   background: var(--bg-sidebar);
 }
@@ -216,7 +235,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 7px 9px;
+  padding: 9px 11px;
   border-color: transparent;
   background: transparent;
   color: var(--text-secondary);
@@ -227,8 +246,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 .settings-nav button.active {
   background: var(--bg-active);
-  color: var(--text);
-  font-weight: 560;
+  color: var(--accent-strong);
+  font-weight: 650;
 }
 .connected-dot {
   width: 7px;
@@ -241,22 +260,34 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  padding: 22px 24px 32px;
+  padding: 28px 30px 40px;
 }
 .settings-section {
   max-width: 620px;
   margin: 0 auto;
 }
+.settings-section-wide {
+  max-width: 780px;
+}
 .section-heading {
   margin-bottom: 18px;
 }
 .section-heading h3 {
-  font-size: 16px;
+  font-size: 20px;
+  line-height: 1.25;
 }
 .section-heading p {
   margin-top: 4px;
   color: var(--text-dim);
   font-size: 12.5px;
+}
+.eyebrow {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 1.2px;
 }
 .setting-card {
   display: flex;

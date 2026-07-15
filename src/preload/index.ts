@@ -25,6 +25,7 @@ const api: InfohubApi = {
     list: () => ipcRenderer.invoke(IPC.sourceList),
     search: (type, q) => ipcRenderer.invoke(IPC.sourceSearch, type, q),
     add: (type, r) => ipcRenderer.invoke(IPC.sourceAdd, type, r),
+    setEnabled: (id, enabled) => ipcRenderer.invoke(IPC.sourceSetEnabled, id, enabled),
     remove: (id) => ipcRenderer.invoke(IPC.sourceRemove, id),
     refresh: (id) => ipcRenderer.invoke(IPC.sourceRefresh, id)
   },
@@ -32,6 +33,7 @@ const api: InfohubApi = {
     list: (opts) => ipcRenderer.invoke(IPC.articleList, opts),
     get: (id) => ipcRenderer.invoke(IPC.articleGet, id),
     markRead: (id, read) => ipcRenderer.invoke(IPC.articleMarkRead, id, read),
+    markAllRead: (opts) => ipcRenderer.invoke(IPC.articleMarkAllRead, opts),
     archive: (id) => ipcRenderer.invoke(IPC.articleArchive, id),
     unreadCounts: () => ipcRenderer.invoke(IPC.articleUnreadCounts),
     reprocess: (input) => ipcRenderer.invoke(IPC.articleReprocess, input)

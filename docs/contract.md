@@ -17,7 +17,7 @@ interface Source {
 }
 ```
 
-当前实现把信源清单存于 `data/sources.json`。`wechat.config = { fakeid, alias?, signature? }`，`rss.config = { feedUrl }`。
+当前实现把信源清单存于 `data/sources.json`。`wechat.config = { fakeid, alias?, signature? }`，`rss.config = { feedUrl }`。`enabled=false` 只让该来源退出“拉取全部”和自动采集；用户仍可对它执行显式单源拉取或历史维护。
 
 ## DiscoverResult — 添加信源候选
 
@@ -130,6 +130,13 @@ interface ArticleDetail extends Article {
 6. **团队字段也是文件数据**：`team.contributedByMe` 用于重建“我的”索引，`contributors` 仅是服务端公开贡献信息；这里不允许出现 Cookie、token、fingerprint 或浏览器 session。
 7. **`content` 描述正文生命周期，不内联 HTML**：frontmatter 只写状态、解析器版本、相对 sidecar 路径、尝试/成功时间与中文错误；正文 HTML 保存在同名 `.content.html`，完整页面保存在 `raw/*.page.html`。
 8. **列表与详情分离**：`article:list` 返回轻量 `Article[]`，只有 `article:get` 返回 `ArticleDetail` 并按需读取 `contentHtml`，避免列表 IPC 搬运大段 HTML。
+
+## 阅读与来源 IPC
+
+- `source:setEnabled(sourceId, enabled)` 只修改 `sources.json` 中该来源的参与状态，不删除文章。
+- `source:refresh(sourceId?)` 是“拉取最新”：显式 `sourceId` 只处理单源；省略时处理全部 `enabled` 来源。它不等同于历史回溯。
+- `article:markAllRead({sourceId?, scope?})` 将当前来源和 `mine/team` 范围内所有未归档文章标为已读，逐篇写回 Article 文件，不受 `article:list` 的 500 条限制，也不推进内容 `updatedAt`。
+- `article:reprocess` 的 `article/source/all` 是正文维护范围；`offline/network` 是本机快照与联网原 URL 两种模式。它只枚举已入库 Article，不会发现从未入库的旧文章。
 
 ## 团队传输 DTO
 
