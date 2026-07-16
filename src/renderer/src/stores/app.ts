@@ -1,6 +1,11 @@
 // 前端状态：信源、文章、账号、进度。集中管理并订阅 main 推送。
 import { reactive, readonly } from 'vue'
-import type { Source, Article, ArticleDetail, DiscoverResult } from '../../../shared/contract'
+import type {
+  Source,
+  ArticleDetail,
+  ArticleListItem,
+  DiscoverResult
+} from '../../../shared/contract'
 import type { WechatCollectionSettings, WxAccountView } from '../../../shared/wechat'
 import type { InfohubApi, IngestProgress, UpdateStatus } from '../../../shared/ipc'
 import type { CollectionScheduleStatus, CollectionSettingsView } from '../../../shared/collection'
@@ -31,12 +36,14 @@ interface State {
   dataLibraryLoading: boolean
   dataLibraryBusy: boolean
   dataLibraryError: string
-  articles: Article[]
+  articles: ArticleListItem[]
   articlesLoading: boolean
   articlesError: string
   articleMaintenanceBusy: boolean
   selectedSourceId: string | null // null = 全部
   selectedArticle: ArticleDetail | null
+  articleContentHtmlLoading: boolean
+  articleContentHtmlError: string
   filter: 'unread' | 'all' | 'archived'
   articleScope: 'mine' | 'team'
   team: TeamStatus | null
@@ -68,6 +75,8 @@ const state = reactive<State>({
   articleMaintenanceBusy: false,
   selectedSourceId: null,
   selectedArticle: null,
+  articleContentHtmlLoading: false,
+  articleContentHtmlError: '',
   filter: 'all',
   articleScope: 'mine',
   team: null,
@@ -79,6 +88,8 @@ const state = reactive<State>({
 
 const api = window.api
 let articleRequestId = 0
+let articleDetailRequestId = 0
+let articlesChangedTimer: ReturnType<typeof setTimeout> | null = null
 let eventSubscriptionsInstalled = false
 
 export const store = {
@@ -90,9 +101,13 @@ export const store = {
       eventSubscriptionsInstalled = true
       api.on('accounts-changed', () => void this.loadAccounts())
       api.on('articles-changed', () => {
-        void this.refreshAll().catch((error) => {
-          state.articlesError = userFacingError(error, '更新文章列表失败')
-        })
+        if (articlesChangedTimer) clearTimeout(articlesChangedTimer)
+        articlesChangedTimer = setTimeout(() => {
+          articlesChangedTimer = null
+          void this.refreshAll().catch((error) => {
+            state.articlesError = userFacingError(error, '更新文章列表失败')
+          })
+        }, 80)
       })
       api.on('team-status', (status) => {
         state.team = status
@@ -263,41 +278,96 @@ export const store = {
 
   async refreshAll(): Promise<void> {
     const selectedId = state.selectedArticle?.id
-    const [, , selected] = await Promise.all([
+    const preserveContentHtml = Boolean(state.selectedArticle?.contentHtml)
+    const [, , selected, contentHtml] = await Promise.all([
       this.loadSources(),
       this.loadArticles(),
-      selectedId ? api.article.get(selectedId) : Promise.resolve(null)
+      selectedId ? api.article.get(selectedId) : Promise.resolve(null),
+      selectedId && preserveContentHtml
+        ? api.article.getContentHtml(selectedId)
+        : Promise.resolve(null)
     ])
-    // 采集可能刚为当前文章补齐 HTML；列表刷新时同时替换详情，避免必须重新点选。
-    if (selectedId && state.selectedArticle?.id === selectedId) state.selectedArticle = selected
+    if (selectedId && state.selectedArticle?.id === selectedId) {
+      state.selectedArticle = selected && contentHtml
+        ? { ...selected, contentHtml }
+        : selected
+    }
   },
 
   async selectSource(id: string | null): Promise<void> {
+    if (state.selectedSourceId === id) return
+    articleDetailRequestId++
     state.selectedSourceId = id
     state.selectedArticle = null
+    state.articleContentHtmlLoading = false
+    state.articleContentHtmlError = ''
     await this.loadArticles()
   },
 
   async setFilter(f: State['filter']): Promise<void> {
+    if (state.filter === f) return
     state.filter = f
     await this.loadArticles()
   },
 
   async setArticleScope(scope: State['articleScope']): Promise<void> {
     if (scope === 'team' && !state.team?.device) return
+    if (state.articleScope === scope) return
+    articleDetailRequestId++
     state.articleScope = scope
     state.selectedArticle = null
+    state.articleContentHtmlLoading = false
+    state.articleContentHtmlError = ''
     await this.loadArticles()
   },
 
   async openArticle(id: string): Promise<void> {
+    const requestId = ++articleDetailRequestId
+    state.articleContentHtmlLoading = false
+    state.articleContentHtmlError = ''
     const a = await api.article.get(id)
+    if (requestId !== articleDetailRequestId) return
     state.selectedArticle = a
     if (a && !a.read) {
-      await api.article.markRead(id, true)
-      await this.loadSources()
       const item = state.articles.find((x) => x.id === id)
       if (item) item.read = true
+      a.read = true
+      try {
+        await api.article.markRead(id, true)
+        await this.loadSources()
+      } catch (error) {
+        if (requestId === articleDetailRequestId && state.selectedArticle?.id === id) {
+          state.selectedArticle.read = false
+          if (item) item.read = false
+          state.articlesError = userFacingError(error, '保存已读状态失败')
+        }
+      }
+    }
+  },
+
+  async loadSelectedArticleContentHtml(): Promise<void> {
+    const article = state.selectedArticle
+    if (
+      !article ||
+      article.contentHtml ||
+      !article.content?.contentHtmlPath ||
+      state.articleContentHtmlLoading
+    ) return
+    const requestId = articleDetailRequestId
+    const articleId = article.id
+    state.articleContentHtmlLoading = true
+    state.articleContentHtmlError = ''
+    try {
+      const contentHtml = await api.article.getContentHtml(articleId)
+      if (requestId !== articleDetailRequestId || state.selectedArticle?.id !== articleId) return
+      if (!contentHtml) throw new Error('本机原始排版文件不存在，可尝试“重抓本篇”修复。')
+      state.selectedArticle = { ...state.selectedArticle, contentHtml }
+    } catch (error) {
+      if (requestId === articleDetailRequestId && state.selectedArticle?.id === articleId) {
+        state.articleContentHtmlError = userFacingError(error, '原始排版加载失败')
+      }
+    } finally {
+      if (requestId === articleDetailRequestId) state.articleContentHtmlLoading = false
     }
   },
 
@@ -318,10 +388,8 @@ export const store = {
 
     state.articleMaintenanceBusy = true
     try {
-      const result = await api.article.reprocess(input)
-      // 重抓会更新正文派生文件，同时刷新列表和当前已打开的详情。
-      await this.refreshAll()
-      return result
+      // 有正文变化时 main 会广播一次 articles-changed；统一由事件刷新，避免 IPC 返回后重复读取。
+      return await api.article.reprocess(input)
     } finally {
       state.articleMaintenanceBusy = false
     }
@@ -372,9 +440,25 @@ export const store = {
       state.team = await api.team.syncNow()
       state.teamError = state.team.error ? userFacingError(state.team.error, '团队同步失败') : ''
       if (state.team.state === 'error') throw new Error(state.teamError || '同步失败')
-      await this.refreshAll()
+      // pull 有变化时由 main 广播 articles-changed；push-only 同步不需要重读本地文章。
     } catch (error) {
       state.teamError = userFacingError(error, '团队同步失败')
+      throw new Error(state.teamError)
+    } finally {
+      state.teamLoading = false
+    }
+  },
+
+  async updateTeamSettings(input: {
+    autoSyncEnabled: boolean
+    intervalMinutes: number
+  }): Promise<void> {
+    state.teamLoading = true
+    state.teamError = ''
+    try {
+      state.team = await api.team.updateSettings(input)
+    } catch (error) {
+      state.teamError = userFacingError(error, '团队自动同步设置保存失败')
       throw new Error(state.teamError)
     } finally {
       state.teamLoading = false

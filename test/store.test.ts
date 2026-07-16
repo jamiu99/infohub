@@ -89,6 +89,14 @@ test('normalize + save：文件落地 + 索引可查 + 时间转 UTC ms', () => 
     const list = store.listArticles()
     assert.equal(list.length, 1)
     assert.equal(list[0].title, '测试文章标题')
+    assert.deepEqual(Object.keys(list[0]).sort(), [
+      'archived',
+      'id',
+      'publishedAt',
+      'read',
+      'source',
+      'title'
+    ])
     // 从文件读回正文/元数据一致
     const got = store.getArticle(saved.id)
     assert.equal(got?.ext.author_name, '特工少女')
@@ -239,6 +247,47 @@ test('外部工具修改 Markdown 后可同步回 SQLite', () => {
   }
 })
 
+test('列表与未读统计只读 SQLite 热路径，不触发全目录扫描或正文读取', () => {
+  const { store, dir } = freshStore()
+  try {
+    const saved = store.saveArticle(normalizeWechat(toRawItem(source.id, rawItem), source))
+    store.syncIndexFromFiles = () => {
+      throw new Error('热路径不应扫描文件')
+    }
+    assert.equal(store.listArticles()[0]?.id, saved.id)
+    assert.equal(store.unreadCounts()[source.id], 1)
+  } finally {
+    store.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('上次文章写入中断留下 dirty 标记时，下次启动从 Markdown 恢复索引', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'infohub-dirty-index-test-'))
+  const paths = makePaths(dir)
+  let store: Store | null = new Store(paths)
+  try {
+    const saved = store.saveArticle(normalizeWechat(toRawItem(source.id, rawItem), source))
+    const full = join(paths.articles, saved.filePath!)
+    writeFileSync(full, readFileSync(full, 'utf8').replace('测试文章标题', '崩溃后文件标题'))
+    store.close()
+    store = null
+
+    const db = new DatabaseSync(paths.index)
+    db.prepare(
+      `INSERT INTO store_meta (key, value) VALUES ('index_dirty', '1')
+       ON CONFLICT(key) DO UPDATE SET value = '1'`
+    ).run()
+    db.close()
+
+    store = new Store(paths)
+    assert.equal(store.listArticles()[0]?.title, '崩溃后文件标题')
+  } finally {
+    store?.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('v0.1.0 迁移：保留 SQLite 阅读状态并补 externalId', () => {
   const { store, dir } = freshStore()
   const raw = toRawItem(source.id, rawItem)
@@ -318,6 +367,7 @@ test('微信正文产物分别落到 Markdown、正文 HTML sidecar 与原始页
 
     const listed = store.listArticles()[0]
     assert.equal('contentHtml' in listed, false)
+    assert.equal(store.getArticleContentHtml(saved.id), '<div id="js_content"><p>完整正文</p></div>')
     assert.equal(store.getArticleDetail(saved.id)?.contentHtml, '<div id="js_content"><p>完整正文</p></div>')
 
     const firstContentPath = saved.content!.contentHtmlPath!

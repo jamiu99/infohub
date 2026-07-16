@@ -90,9 +90,9 @@ interface ArticleContentState {
 
 ### 2.4 读取与界面
 
-- `article:list` 只返回轻量 Article/frontmatter，不在文章列表 IPC 中携带大段 HTML。
-- `article:get` 返回 `ArticleDetail`，按 `contentHtmlPath` 从 `articles/` 根目录内读取 `contentHtml`。
-- 微信详情默认 Markdown 沉浸阅读；有 HTML 时用户可切换 iframe 原始排版。
+- `article:list` 只从 SQLite 返回轻量 `ArticleListItem`，不读取 Markdown 或在列表 IPC 中携带正文。
+- `article:get` 读取单篇 Markdown；`article:getContentHtml` 才按 `contentHtmlPath` 从 `articles/` 根目录内读取 `contentHtml`。
+- 微信详情可使用 Markdown 沉浸阅读或 iframe 原始排版，选择作为设备习惯跨文章保留；原始 HTML 只在需要时加载。
 - iframe 可滚动且限制正文宽度；图片、表格和代码区域在窄窗口可收缩/横向滚动。
 - 动态微信组件、需要完整页面运行时的交互或鉴权媒体若不能从静态正文恢复，保留“打开原文”作为完整体验入口。
 
@@ -206,7 +206,7 @@ type WechatBlock =
 
 - 深层嵌套 `#js_content` 不截断，外层 ID/内联样式保留。
 - `data-src` 图片能在 iframe 展示，相对 URL 已补全，完整页面字节内容未被展示改写污染。
-- `article:list` 不带 HTML，`article:get` 才读取 sidecar。
+- `article:list` 不读 Markdown/HTML，`article:get` 读单篇 Markdown，`article:getContentHtml` 才读取 sidecar。
 - 图片消息只采正文数组的直接 `cdn_url`，顺序和图注保留，不混入 watermark/分享封面。
 - 失败、旧 parserVersion、正文 sidecar 丢失或本机完整页面缺失会重试，且失败不覆盖已有完整正文/成功页面。
 - 离线重跑不发文章网络请求；网络重抓每个实际响应都追加快照，维护范围包含归档且不受 500 条限制。

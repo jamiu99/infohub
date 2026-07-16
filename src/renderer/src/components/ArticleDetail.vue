@@ -6,30 +6,43 @@ import { clockTime } from '../util'
 import { renderMarkdown } from '../markdown'
 import { buildWechatSrcdoc } from '../wechat-html'
 import { userFacingError } from '../../../shared/errors'
+import {
+  appearancePreferences,
+  resolveReadingMode,
+  setReadingModePreference,
+  type ReadingModePreference
+} from '../preferences'
 
 const a = computed(() => store.state.selectedArticle)
 const author = computed(() => (a.value?.ext?.author_name as string) || '')
 const digest = computed(() => (a.value?.ext?.digest as string) || '')
 const bodyHtml = computed(() => (a.value?.body ? renderMarkdown(a.value.body) : ''))
-const canShowOriginal = computed(
-  () => a.value?.source.type === 'wechat' && Boolean(a.value.contentHtml)
+const canProvideOriginal = computed(
+  () => a.value?.source.type === 'wechat' && Boolean(a.value.content?.contentHtmlPath)
 )
 const originalSrcdoc = computed(() =>
   a.value?.contentHtml
     ? buildWechatSrcdoc(a.value.contentHtml, a.value.sourceUrl)
     : ''
 )
-const viewMode = ref<'original' | 'reader'>('reader')
+const viewMode = computed(() =>
+  resolveReadingMode(appearancePreferences.readingMode, canProvideOriginal.value)
+)
 const reprocessBusy = ref(false)
 const reprocessMessage = ref('')
 const reprocessMessageKind = ref<'success' | 'error'>('success')
 const maintenanceBusy = computed(() => store.state.articleMaintenanceBusy)
 
 watch(
-  () => ({ id: a.value?.id, canShowOriginal: canShowOriginal.value }),
-  (next, previous) => {
-    if (!next.canShowOriginal) viewMode.value = 'reader'
-    else if (next.id !== previous?.id || !previous?.canShowOriginal) viewMode.value = 'reader'
+  () => ({
+    articleId: a.value?.id,
+    canProvideOriginal: canProvideOriginal.value,
+    preferredMode: appearancePreferences.readingMode
+  }),
+  ({ canProvideOriginal: available, preferredMode }) => {
+    if (available && preferredMode === 'original') {
+      void store.loadSelectedArticleContentHtml()
+    }
   },
   { immediate: true }
 )
@@ -43,6 +56,15 @@ watch(
 
 function openOriginal(): void {
   if (a.value?.sourceUrl) window.open(a.value.sourceUrl, '_blank')
+}
+function selectViewMode(mode: ReadingModePreference): void {
+  setReadingModePreference(mode)
+  if (mode === 'original' && canProvideOriginal.value) {
+    void store.loadSelectedArticleContentHtml()
+  }
+}
+function retryOriginal(): void {
+  void store.loadSelectedArticleContentHtml()
 }
 function archive(): void {
   if (a.value) void window.api.article.archive(a.value.id).then(() => store.refreshAll())
@@ -116,18 +138,20 @@ function publishedDate(ts: number): string {
           {{ reprocessBusy ? '重抓本篇中…' : maintenanceBusy ? '历史任务进行中…' : '重抓本篇' }}
         </button>
         <button class="quiet" @click="archive">归档文章</button>
-        <div v-if="canShowOriginal" class="content-mode" role="group" aria-label="正文显示方式">
+        <div v-if="canProvideOriginal" class="content-mode" role="group" aria-label="正文显示方式">
           <button
             :class="{ active: viewMode === 'original' }"
             :aria-pressed="viewMode === 'original'"
-            @click="viewMode = 'original'"
+            title="设为之后支持原始排版文章的默认显示方式"
+            @click="selectViewMode('original')"
           >
             原始排版
           </button>
           <button
             :class="{ active: viewMode === 'reader' }"
             :aria-pressed="viewMode === 'reader'"
-            @click="viewMode = 'reader'"
+            title="设为之后文章的默认显示方式"
+            @click="selectViewMode('reader')"
           >
             沉浸阅读
           </button>
@@ -143,14 +167,34 @@ function publishedDate(ts: number): string {
       </p>
     </header>
 
-    <iframe
-      v-if="canShowOriginal && viewMode === 'original'"
-      :key="a.id"
-      class="original-frame"
-      :srcdoc="originalSrcdoc"
-      sandbox="allow-popups allow-popups-to-escape-sandbox"
-      title="微信公众号原始排版"
-    ></iframe>
+    <div v-if="canProvideOriginal && viewMode === 'original'" class="original-view">
+      <div class="original-boundary-note" role="note">
+        <span>公众号原始排版固定使用浅色页面</span>
+        <span>正文链接将在系统默认浏览器打开</span>
+      </div>
+      <div v-if="store.state.articleContentHtmlLoading" class="original-state" role="status">
+        正在加载公众号原始排版…
+      </div>
+      <div v-else-if="store.state.articleContentHtmlError" class="original-state error" role="alert">
+        <strong>{{ store.state.articleContentHtmlError }}</strong>
+        <div>
+          <button @click="retryOriginal">重试加载</button>
+          <button class="quiet" @click="selectViewMode('reader')">改用沉浸阅读</button>
+        </div>
+      </div>
+      <iframe
+        v-else-if="originalSrcdoc"
+        :key="a.id"
+        class="original-frame"
+        :srcdoc="originalSrcdoc"
+        sandbox="allow-popups"
+        title="微信公众号原始排版"
+      ></iframe>
+      <div v-else class="original-state error" role="alert">
+        <strong>原始排版暂时不可用。</strong>
+        <button class="quiet" @click="selectViewMode('reader')">改用沉浸阅读</button>
+      </div>
+    </div>
 
     <div v-else class="reading-scroll">
       <!-- eslint-disable-next-line vue/no-v-html -->
@@ -275,6 +319,48 @@ h1 {
   overflow-y: auto;
   padding: 0 54px 90px;
 }
+.original-view {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  background: var(--bg-canvas);
+}
+.original-boundary-note {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  background: var(--bg-subtle);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+.original-state {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+  padding: 28px;
+  color: var(--text-dim);
+  background: var(--bg-reading);
+  text-align: center;
+}
+.original-state.error strong {
+  color: var(--warn);
+  font-size: 12px;
+  font-weight: 550;
+}
+.original-state > div {
+  display: flex;
+  gap: 8px;
+}
 .content {
   width: min(100%, 690px);
   margin: 0 auto;
@@ -374,6 +460,11 @@ h1 {
   }
   .content-mode button {
     flex: 1;
+  }
+  .original-boundary-note {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
   }
 }
 </style>

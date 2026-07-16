@@ -18,6 +18,7 @@ import { prepareDataStartup } from './data-startup'
 import { registerDataLibraryIpc } from './data-library-controller'
 import { GracefulShutdownCoordinator } from './graceful-shutdown'
 import { userFacingError } from '../shared/errors'
+import { shouldOpenFrameExternally } from './external-navigation'
 
 let service: Service | null = null
 const shutdown = new GracefulShutdownCoordinator(async () => {
@@ -92,6 +93,14 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
+  // 旧正文或嵌入内容可能显式使用 target=_self。禁止子 frame 离开静态正文，
+  // 统一交给系统浏览器，避免 iframe 变成没有后退/关闭按钮的网页。
+  win.webContents.on('will-frame-navigate', (event) => {
+    if (!shouldOpenFrameExternally(event)) return
+    event.preventDefault()
+    void shell.openExternal(event.url)
+  })
+
   // F12 / Ctrl+Shift+I 开关 DevTools（默认菜单被移除了，这里手动绑）
   win.webContents.on('before-input-event', (_e, input) => {
     const f12 = input.key === 'F12'
@@ -148,7 +157,9 @@ function createWindow(): void {
           if (typeof window.api.dataLibrary?.open !== 'function') return false;
           if (typeof window.api.dataLibrary?.chooseAndMigrate !== 'function') return false;
           if (typeof window.api.article?.reprocess !== 'function') return false;
+          if (typeof window.api.article?.getContentHtml !== 'function') return false;
           if (typeof window.api.team?.status !== 'function') return false;
+          if (typeof window.api.team?.updateSettings !== 'function') return false;
           if (typeof window.api.team?.join !== 'function') return false;
           if (typeof window.api.team?.leave !== 'function') return false;
           if (typeof window.api.team?.syncNow !== 'function') return false;

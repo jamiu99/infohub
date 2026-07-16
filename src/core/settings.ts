@@ -6,7 +6,12 @@ import {
   WECHAT_HOURLY_LIMIT,
   validateWechatHourlyLimit
 } from './collect/rate-limit'
-import { DEFAULT_TEAM_SERVER_URL, validateTeamServerUrl } from '../shared/team'
+import {
+  DEFAULT_TEAM_SERVER_URL,
+  TEAM_SYNC_INTERVAL,
+  validateTeamServerUrl,
+  validateTeamSyncIntervalMinutes
+} from '../shared/team'
 import {
   AUTO_COLLECT_INTERVAL,
   validateAutoCollectIntervalMinutes,
@@ -20,6 +25,8 @@ export interface InfohubSettings {
   team: {
     serverUrl: string
     enabled: boolean
+    autoSyncEnabled: boolean
+    intervalMinutes: number
   }
   collection: {
     autoCollectEnabled: boolean
@@ -30,7 +37,12 @@ export interface InfohubSettings {
 export function defaultSettings(): InfohubSettings {
   return {
     wechat: { hourlyRequestLimit: WECHAT_HOURLY_LIMIT.default },
-    team: { serverUrl: DEFAULT_TEAM_SERVER_URL, enabled: false },
+    team: {
+      serverUrl: DEFAULT_TEAM_SERVER_URL,
+      enabled: false,
+      autoSyncEnabled: true,
+      intervalMinutes: TEAM_SYNC_INTERVAL.defaultMinutes
+    },
     collection: {
       autoCollectEnabled: false,
       intervalMinutes: AUTO_COLLECT_INTERVAL.defaultMinutes
@@ -44,7 +56,12 @@ export function loadSettings(path: string): InfohubSettings {
   try {
     const parsed = JSON.parse(readFileSync(path, 'utf8')) as {
       wechat?: { hourlyRequestLimit?: unknown }
-      team?: { serverUrl?: unknown; enabled?: unknown }
+      team?: {
+        serverUrl?: unknown
+        enabled?: unknown
+        autoSyncEnabled?: unknown
+        intervalMinutes?: unknown
+      }
       collection?: { autoCollectEnabled?: unknown; intervalMinutes?: unknown }
     }
     const defaults = defaultSettings()
@@ -60,6 +77,15 @@ export function loadSettings(path: string): InfohubSettings {
     } catch {
       // 损坏的团队 URL 不应阻止本地应用启动。
     }
+    const autoSyncEnabled = typeof parsed.team?.autoSyncEnabled === 'boolean'
+      ? parsed.team.autoSyncEnabled
+      : defaults.team.autoSyncEnabled
+    let teamIntervalMinutes = defaults.team.intervalMinutes
+    try {
+      teamIntervalMinutes = validateTeamSyncIntervalMinutes(parsed.team?.intervalMinutes)
+    } catch {
+      // 旧配置缺少字段、或单个周期损坏时，保持原有的 5 分钟自动同步行为。
+    }
     let intervalMinutes = defaults.collection.intervalMinutes
     try {
       intervalMinutes = validateAutoCollectIntervalMinutes(parsed.collection?.intervalMinutes)
@@ -68,7 +94,12 @@ export function loadSettings(path: string): InfohubSettings {
     }
     return {
       wechat: { hourlyRequestLimit },
-      team: { serverUrl, enabled: parsed.team?.enabled === true },
+      team: {
+        serverUrl,
+        enabled: parsed.team?.enabled === true,
+        autoSyncEnabled,
+        intervalMinutes: teamIntervalMinutes
+      },
       collection: {
         autoCollectEnabled: parsed.collection?.autoCollectEnabled === true,
         intervalMinutes
@@ -86,7 +117,9 @@ export function saveSettings(path: string, settings: InfohubSettings): void {
     wechat: { hourlyRequestLimit },
     team: {
       serverUrl: validateTeamServerUrl(settings.team.serverUrl),
-      enabled: settings.team.enabled === true
+      enabled: settings.team.enabled === true,
+      autoSyncEnabled: settings.team.autoSyncEnabled === true,
+      intervalMinutes: validateTeamSyncIntervalMinutes(settings.team.intervalMinutes)
     },
     collection: {
       autoCollectEnabled: settings.collection.autoCollectEnabled === true,

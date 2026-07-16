@@ -1,6 +1,53 @@
 // 微信正文原始排版文档。内容来自公开 mp.weixin.qq.com 页面，保留微信 HTML 与内联样式；
 // iframe 只负责隔离微信 CSS，避免污染 infohub 三栏界面。
 
+function findTagEnd(source: string, start: number): number {
+  let quote = ''
+  for (let index = start; index < source.length; index++) {
+    const character = source[index]
+    if (quote) {
+      if (character === quote) quote = ''
+      continue
+    }
+    if (character === '"' || character === "'") quote = character
+    else if (character === '>') return index
+  }
+  return -1
+}
+
+function setTagAttribute(tag: string, name: string, value: string): string {
+  const attribute = new RegExp(
+    `\\s+${name}(?:\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>]+))?`,
+    'i'
+  )
+  if (attribute.test(tag)) return tag.replace(attribute, ` ${name}="${value}"`)
+  const insertAt = tag.endsWith('/>') ? tag.length - 2 : tag.length - 1
+  return `${tag.slice(0, insertAt)} ${name}="${value}"${tag.slice(insertAt)}`
+}
+
+/**
+ * 展示时再次统一链接行为，覆盖旧资料库或团队同步正文里遗留的 target=_self。
+ * 原始快照与磁盘 sidecar 都不改，只调整本次 iframe 文档。
+ */
+export function normalizeWechatExternalLinks(contentHtml: string): string {
+  const anchorStart = /<a(?=[\s>])/gi
+  let normalized = ''
+  let cursor = 0
+  while (true) {
+    const match = anchorStart.exec(contentHtml)
+    if (!match) break
+    const end = findTagEnd(contentHtml, match.index + match[0].length)
+    if (end < 0) break
+    let tag = contentHtml.slice(match.index, end + 1)
+    tag = setTagAttribute(tag, 'target', '_blank')
+    tag = setTagAttribute(tag, 'rel', 'noopener noreferrer')
+    normalized += contentHtml.slice(cursor, match.index) + tag
+    cursor = end + 1
+    anchorStart.lastIndex = cursor
+  }
+  return normalized + contentHtml.slice(cursor)
+}
+
 function escapeAttribute(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -52,6 +99,6 @@ export function buildWechatSrcdoc(contentHtml: string, sourceUrl: string): strin
     a { word-break: break-word; }
   </style>
 </head>
-<body>${contentHtml}</body>
+<body>${normalizeWechatExternalLinks(contentHtml)}</body>
 </html>`
 }

@@ -4,7 +4,7 @@
 
 infohub 是 **数据采集 + 文件归档 + SQLite 索引 + 快速看板**。外部工具可读取数据，但项目不直接集成 AI、模型、CLI、Skill 或 Agent 工作流。
 
-当前发布基线为 `v0.5.0`：在图片消息、历史维护、自动采集和可迁移资料库之上，提供米色沉浸阅读、范围化一键已读，以及按微信公众号/RSS 来源启停和抓取的独立管理页。资料库分为不可变 Raw 快照、infohub 管理的 Article 投影和外部处理产物 `outputs/`；凭据、设置、团队队列和 Chromium 登录分区固定留在应用私有状态目录，不随资料库迁移。唯一进度入口是 [docs/overview.md](docs/overview.md)。
+当前发布基线为 `v0.6.0`：列表只查 SQLite 摘要，公众号 HTML 按需加载，阅读模式跨文章保留，提供白色/暗色主题，并允许配置团队同步周期。资料库分为不可变 Raw 快照、infohub 管理的 Article 投影和外部处理产物 `outputs/`；凭据、设置、团队队列和 Chromium 登录分区固定留在应用私有状态目录，不随资料库迁移。唯一进度入口是 [docs/overview.md](docs/overview.md)。
 
 ## 目录速览
 

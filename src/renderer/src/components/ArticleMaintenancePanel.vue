@@ -9,11 +9,18 @@ import { store } from '../stores/app'
 
 type MaintenanceScope = 'source' | 'all'
 
-const props = defineProps<{ sourceId?: string | null }>()
+const props = withDefaults(defineProps<{
+  sourceId?: string | null
+  scope?: MaintenanceScope
+}>(), {
+  sourceId: null,
+  scope: 'source'
+})
+
 const selectedSource = computed(() =>
   store.state.sources.find((source) => source.id === props.sourceId)
 )
-const scope = ref<MaintenanceScope>(props.sourceId ? 'source' : 'all')
+const isAllSources = computed(() => props.scope === 'all')
 const mode = ref<ArticleMaintenanceMode>('offline')
 const confirmAllNetwork = ref(false)
 const running = ref(false)
@@ -21,15 +28,34 @@ const message = ref('')
 const messageKind = ref<'success' | 'warning' | 'error'>('success')
 const result = ref<ArticleMaintenanceResult | null>(null)
 const busy = computed(() => store.state.articleMaintenanceBusy)
+const missingSource = computed(() => !isAllSources.value && !selectedSource.value)
 const networkAllBlocked = computed(
-  () => scope.value === 'all' && mode.value === 'network' && !confirmAllNetwork.value
+  () => isAllSources.value && mode.value === 'network' && !confirmAllNetwork.value
+)
+
+const panelTitle = computed(() =>
+  isAllSources.value ? '批量修复全部来源' : '修复这个来源已保存的文章'
+)
+
+const panelDescription = computed(() =>
+  isAllSources.value
+    ? '处理所有本机已保存的文章（包括归档文章）；不会检查来源中的新文章。'
+    : '正文缺失或显示异常时使用；不会检查这个来源中的新文章。'
+)
+
+const scopeDescription = computed(() =>
+  isAllSources.value
+    ? '处理范围固定为全部本机来源，并包含已归档文章。'
+    : selectedSource.value
+      ? `处理范围固定为“${selectedSource.value.name}”。`
+      : '请先从左侧选择一个来源。'
 )
 
 const actionLabel = computed(() => {
-  const range = scope.value === 'source' ? '该来源' : '全部来源'
-  return mode.value === 'offline'
-    ? `离线重解析${range}历史`
-    : `联网重抓${range}已入库历史`
+  if (mode.value === 'offline') {
+    return isAllSources.value ? '修复全部已保存文章' : '修复这个来源的已保存文章'
+  }
+  return isAllSources.value ? '联网更新全部已保存文章' : '联网更新这个来源的已保存文章'
 })
 
 const resultSummary = computed(() => {
@@ -51,52 +77,48 @@ const failedItems = computed(() =>
     }))
 )
 
-watch(
-  () => props.sourceId,
-  (sourceId) => {
-    if (!sourceId && scope.value === 'source') scope.value = 'all'
-  }
-)
-
-watch([scope, mode], () => {
+watch(mode, () => {
   confirmAllNetwork.value = false
   message.value = ''
   result.value = null
 })
 
-async function run(): Promise<void> {
-  if (busy.value || running.value || networkAllBlocked.value) return
-  const sourceId = selectedSource.value?.id
-  if (scope.value === 'source' && !sourceId) {
-    messageKind.value = 'error'
-    message.value = '请先从左侧选择一个来源，或改为处理全部来源。'
-    return
+watch(
+  () => props.sourceId,
+  () => {
+    message.value = ''
+    result.value = null
   }
+)
+
+async function run(): Promise<void> {
+  if (busy.value || running.value || networkAllBlocked.value || missingSource.value) return
+  const sourceId = selectedSource.value?.id
 
   running.value = true
   message.value = mode.value === 'offline'
-    ? '正在读取不可变本机快照并重建正文…'
-    : '正在逐篇访问已入库文章的原文地址…'
+    ? '正在使用本机已保存的页面修复阅读正文…'
+    : '正在逐篇访问原文并更新已保存的正文…'
   messageKind.value = 'success'
   result.value = null
 
   try {
     result.value = await store.reprocessArticles({
       mode: mode.value,
-      scope: scope.value,
-      ...(scope.value === 'source' && sourceId ? { sourceId } : {})
+      scope: props.scope,
+      ...(!isAllSources.value && sourceId ? { sourceId } : {})
     })
     messageKind.value = result.value.failed > 0 || result.value.skipped > 0
       ? 'warning'
       : 'success'
     message.value = result.value.total > 0
-      ? (mode.value === 'offline' ? '本机历史正文重新解析完成。' : '已入库历史正文联网重抓完成。')
-      : '没有找到符合当前范围、且支持这种处理方式的本机文章。'
+      ? (mode.value === 'offline' ? '已使用本机内容完成修复。' : '已完成联网更新。')
+      : '没有找到符合当前范围、且支持这种修复方式的文章。'
   } catch (error) {
     messageKind.value = 'error'
     message.value = userFacingError(
       error,
-      mode.value === 'offline' ? '本机快照重新解析失败' : '历史正文联网重抓失败'
+      mode.value === 'offline' ? '使用本机内容修复失败' : '联网更新失败'
     )
   } finally {
     running.value = false
@@ -105,129 +127,155 @@ async function run(): Promise<void> {
 </script>
 
 <template>
-  <section class="maintenance-card">
-    <header class="heading">
-      <div>
-        <span class="kicker">HISTORY</span>
-        <strong>处理已入库历史</strong>
-        <p>这里不会发现从未入库的更早文章；单篇正文请在阅读页使用“重抓本篇”。</p>
-      </div>
-    </header>
+  <details class="maintenance-card">
+    <summary class="maintenance-summary">
+      <span class="summary-copy">
+        <strong>{{ panelTitle }}</strong>
+        <small>{{ panelDescription }}</small>
+      </span>
+      <span class="disclosure-state" aria-hidden="true">
+        <span class="when-closed">展开</span>
+        <span class="when-open">收起</span>
+      </span>
+    </summary>
 
-    <fieldset :disabled="busy || running" class="choice-group">
-      <legend>第一步 · 选择范围</legend>
-      <label class="choice" :class="{ disabled: !selectedSource }">
-        <input v-model="scope" type="radio" value="source" :disabled="!selectedSource" />
-        <span>
-          <strong>单个来源</strong>
-          <small>{{ selectedSource ? selectedSource.name : '先从左侧选择来源' }}</small>
-        </span>
-      </label>
-      <label class="choice">
-        <input v-model="scope" type="radio" value="all" />
-        <span>
-          <strong>全部来源</strong>
-          <small>全部本机贡献的已入库文章，包含已归档文章</small>
-        </span>
-      </label>
-    </fieldset>
-
-    <fieldset :disabled="busy || running" class="choice-group mode-group">
-      <legend>第二步 · 选择处理方式</legend>
-      <label class="choice mode-choice">
-        <input v-model="mode" type="radio" value="offline" />
-        <span>
-          <strong>本机快照重新解析</strong>
-          <small>不联网，不改 Raw；适合解析器升级后批量重建阅读正文</small>
-        </span>
-        <em>安全</em>
-      </label>
-      <label class="choice mode-choice">
-        <input v-model="mode" type="radio" value="network" />
-        <span>
-          <strong>联网重抓已入库正文</strong>
-          <small>逐篇访问现有文章 URL；不翻页发现未入库历史，可能触发限流</small>
-        </span>
-        <em class="network">联网</em>
-      </label>
-    </fieldset>
-
-    <label v-if="scope === 'all' && mode === 'network'" class="risk-confirm">
-      <input v-model="confirmAllNetwork" type="checkbox" />
-      <span>我确认要逐篇联网访问全部已入库历史；任务可能耗时较长。</span>
-    </label>
-
-    <div class="run-row">
-      <div class="run-summary">
-        <strong>{{ scope === 'source' ? `范围：${selectedSource?.name || '未选择'}` : '范围：全部本机来源' }}</strong>
-        <span>{{ mode === 'offline' ? '网络：不联网' : '网络：逐篇访问原文' }}</span>
-      </div>
-      <button
-        class="primary"
-        :disabled="busy || running || networkAllBlocked || (scope === 'source' && !selectedSource)"
-        @click="run"
-      >
-        {{ running ? '处理中…' : actionLabel }}
-      </button>
-    </div>
-
-    <div
-      v-if="message"
-      class="result"
-      :class="messageKind"
-      role="status"
-      aria-live="polite"
-    >
-      <strong>{{ message }}</strong>
-      <p v-if="resultSummary">{{ resultSummary }}</p>
-      <ul v-if="failedItems.length">
-        <li v-for="item in failedItems" :key="item.articleId">
-          {{ item.title }}：{{ item.description }}
-        </li>
-      </ul>
-      <p v-if="result && failedItems.length < result.failed + result.skipped" class="more">
-        另有 {{ result.failed + result.skipped - failedItems.length }} 篇未展开。
+    <div class="maintenance-body">
+      <p class="scope-note">
+        <strong>{{ scopeDescription }}</strong>
+        这里只修复已经保存的文章；不支持的内容会自动跳过。
       </p>
+
+      <fieldset :disabled="busy || running || missingSource" class="choice-group">
+        <legend>选择修复方式</legend>
+        <label class="choice mode-choice">
+          <input v-model="mode" type="radio" value="offline" />
+          <span>
+            <strong>使用本机保存的页面</strong>
+            <small>不联网；适合正文显示异常或软件更新后重新生成阅读内容</small>
+          </span>
+          <em>不联网</em>
+        </label>
+        <label class="choice mode-choice">
+          <input v-model="mode" type="radio" value="network" />
+          <span>
+            <strong>重新访问原文</strong>
+            <small>逐篇访问文章原地址并更新正文；可能耗时，也可能遇到平台访问限制</small>
+          </span>
+          <em class="network">需联网</em>
+        </label>
+      </fieldset>
+
+      <label v-if="isAllSources && mode === 'network'" class="risk-confirm">
+        <input v-model="confirmAllNetwork" type="checkbox" />
+        <span>我确认要逐篇联网访问全部已保存文章；这个过程可能持续较长时间。</span>
+      </label>
+
+      <div class="run-row">
+        <div class="run-summary">
+          <strong>{{ scopeDescription }}</strong>
+          <span>{{ mode === 'offline' ? '使用本机内容，不联网' : '逐篇访问原文' }}</span>
+        </div>
+        <button
+          class="primary"
+          :disabled="busy || running || missingSource || networkAllBlocked"
+          @click="run"
+        >
+          {{ running ? '处理中…' : actionLabel }}
+        </button>
+      </div>
+
+      <div
+        v-if="message"
+        class="result"
+        :class="messageKind"
+        role="status"
+        aria-live="polite"
+      >
+        <strong>{{ message }}</strong>
+        <p v-if="resultSummary">{{ resultSummary }}</p>
+        <ul v-if="failedItems.length">
+          <li v-for="item in failedItems" :key="item.articleId">
+            {{ item.title }}：{{ item.description }}
+          </li>
+        </ul>
+        <p v-if="result && failedItems.length < result.failed + result.skipped" class="more">
+          另有 {{ result.failed + result.skipped - failedItems.length }} 篇未展开。
+        </p>
+      </div>
     </div>
-  </section>
+  </details>
 </template>
 
 <style scoped>
 .maintenance-card {
-  padding: 17px;
   border: 1px solid var(--border);
   background: var(--bg-subtle);
 }
-.heading strong {
-  display: block;
-  font-size: 14px;
+.maintenance-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 15px;
+  cursor: pointer;
+  list-style: none;
 }
-.heading p,
-.result p,
-.result ul {
-  margin: 4px 0 0;
-  font-size: 12px;
-  line-height: 1.6;
+.maintenance-summary::-webkit-details-marker {
+  display: none;
 }
-.heading p {
+.maintenance-summary:hover {
+  background: var(--bg-hover);
+}
+.summary-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+.summary-copy strong {
+  font-size: 13px;
+}
+.summary-copy small {
+  margin-top: 4px;
   color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.5;
 }
-.kicker {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--accent);
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 1px;
+.disclosure-state {
+  flex: 0 0 auto;
+  color: var(--accent-strong);
+  font-size: 11px;
+}
+.when-open {
+  display: none;
+}
+.maintenance-card[open] .when-closed {
+  display: none;
+}
+.maintenance-card[open] .when-open {
+  display: inline;
+}
+.maintenance-body {
+  padding: 0 15px 15px;
+  border-top: 1px solid var(--border);
+}
+.scope-note {
+  margin: 14px 0 0;
+  padding: 9px 10px;
+  background: var(--bg-elevated);
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.55;
+}
+.scope-note strong {
+  color: var(--text-secondary);
 }
 .choice-group {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  margin: 16px 0 0;
-  padding: 14px 0 0;
+  margin: 15px 0 0;
+  padding: 0;
   border: 0;
-  border-top: 1px solid var(--border);
 }
 .choice-group legend {
   float: left;
@@ -250,10 +298,6 @@ async function run(): Promise<void> {
 .choice:has(input:checked) {
   border-color: var(--accent);
   background: var(--accent-soft);
-}
-.choice.disabled {
-  opacity: 0.55;
-  cursor: default;
 }
 .choice span {
   display: flex;
@@ -328,28 +372,35 @@ async function run(): Promise<void> {
   color: var(--ok);
   background: color-mix(in srgb, var(--ok) 7%, var(--bg-elevated));
 }
-.result.warning,
-.result.error {
+.result.warning {
   border-left-color: var(--warn);
   color: var(--warn);
   background: color-mix(in srgb, var(--warn) 7%, var(--bg-elevated));
 }
+.result.error {
+  border-left-color: var(--danger);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 7%, var(--bg-elevated));
+}
 .result p,
 .result ul {
-  color: var(--text-secondary);
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
 }
 .result ul {
   padding-left: 18px;
 }
 .result .more {
   color: var(--text-dim);
+  font-size: 10.5px;
 }
-@media (max-width: 680px) {
+@media (max-width: 760px) {
   .choice-group {
     grid-template-columns: 1fr;
   }
   .run-row {
-    align-items: stretch;
+    align-items: flex-start;
     flex-direction: column;
   }
 }

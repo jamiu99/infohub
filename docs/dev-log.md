@@ -2,14 +2,14 @@
 
 > 上级：[overview.md](overview.md) · 数据接口：[data-interface.md](data-interface.md)
 
-最后更新：2026-07-15，v0.5.0 阅读体验与来源控制发布基线。
+最后更新：2026-07-17，v0.6.0 阅读性能与设备偏好发布基线。
 
 ## 代码地图
 
 | 领域 | 实现 |
 |------|------|
 | 共享契约 | `src/shared/contract.ts`、`ipc.ts`、`collection.ts`、`maintenance.ts`、`data-library.ts`、`wechat.ts`、`team.ts`、`url.ts` |
-| App 入口 | `src/main/index.ts` |
+| App 入口 | `src/main/index.ts`、`external-navigation.ts` |
 | 后端装配/IPC | `src/main/service.ts` |
 | 数据资料库 | `src/main/data-guide.ts`、`data-location.ts`、`data-migration.ts`、`data-startup.ts`、`data-library-controller.ts`、`src/core/paths.ts` |
 | 微信扫码/凭据 | `src/main/wechat-login.ts`、`secrets.ts`、`team-secrets.ts` |
@@ -21,11 +21,23 @@
 | 文件/SQLite | `src/core/store/index.ts`、`markdown.ts`、`src/core/paths.ts` |
 | 团队同步 | `src/core/team/sync-client.ts`、`sync-storage.ts`、`apply-remote.ts` |
 | preload | `src/preload/index.ts` |
-| Vue 看板 | `src/renderer/src/stores/app.ts`、`layout.ts`、`wechat-html.ts`、`components/*.vue`、`styles/main.css` |
+| Vue 看板 | `src/renderer/src/stores/app.ts`、`layout.ts`、`preferences.ts`、`wechat-html.ts`、`components/*.vue`、`styles/main.css` |
 | 内容呈现 | `src/renderer/src/markdown.ts`、`src/renderer/src/wechat-html.ts`、`src/renderer/index.html` |
 | 更新/发布 | `src/main/update-controller.ts`、`src/main/updater.ts`、`electron-builder.yml`、`.github/workflows/release.yml` |
 
 仓库已没有 AI CLI、Skill 安装器或 `core/agent` 目录。
+
+## v0.6.0 阅读性能、偏好与团队周期（2026-07-17）
+
+- 390 篇真实资料库诊断确认：旧 `article:list` 会全盘解析 Markdown、回写索引，再逐篇 hydrate 最多 500 篇；SQLite 查询本身只需数毫秒。现在列表直接返回 SQLite `ArticleListItem`，未读统计与来源切换不再触发文件扫描。
+- SQLite 新增来源名和正文 sidecar 路径投影；正常启动复用索引，只有首次建库、投影升级或上次文章写入留下 dirty 标记时重建。批量已读使用一个 dirty 周期和 SQLite 事务。
+- `article:get` 只读选中的 Markdown；公众号 HTML 由 `article:getContentHtml` 在进入原始排版时懒加载。快速切换文章用请求序号丢弃过期结果，短时间 `articles-changed` 事件合并刷新。
+- “沉浸阅读 / 原始排版”成为跨文章设备习惯；新增白色/暗色双主题。公众号原始排版固定浅色，外链统一使用系统默认浏览器，iframe 子 frame 导航由 main 兜底拦截。
+- “来源与抓取”不再把找新文章和修复正文画成步骤；单源/全量维护分别折叠，删除后果明确。
+- 团队自动同步支持关闭和 1～1440 分钟周期（推荐 5 分钟），使用单次 timer；关闭后继续排队并允许立即同步。
+- 当前 Logo 未修改；等待用户提供裁剪成品后替换，记为低优先级品牌 TODO。
+
+当前验证：`pnpm typecheck` ✅ · `pnpm test:core` 166/166 ✅ · `pnpm build`/bundle ✅ · Electron desktop smoke ✅。
 
 ## 米色阅读体验与抓取语义升级（2026-07-15）
 

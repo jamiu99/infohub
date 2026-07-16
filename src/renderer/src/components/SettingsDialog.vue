@@ -7,6 +7,11 @@ import TeamPanel from './TeamPanel.vue'
 import AutoCollectPanel from './AutoCollectPanel.vue'
 import DataLibraryPanel from './DataLibraryPanel.vue'
 import SourceSettingsPanel from './SourceSettingsPanel.vue'
+import {
+  appearancePreferences,
+  setReadingModePreference,
+  setThemePreference
+} from '../preferences'
 
 type Section = 'sources' | 'accounts' | 'library' | 'team' | 'appearance' | 'update'
 
@@ -85,7 +90,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             <div class="section-heading">
               <span class="eyebrow">CONTENT SOURCES</span>
               <h3>来源与抓取</h3>
-              <p>逐个管理公众号，并明确区分“拉取最新”和“处理已入库历史”。</p>
+              <p>管理关注来源；“检查新文章”和“修复已保存文章”互不依赖。</p>
             </div>
             <SourceSettingsPanel />
           </section>
@@ -119,14 +124,62 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           <section v-else-if="active === 'appearance'" class="settings-section">
             <div class="section-heading">
               <h3>阅读界面</h3>
-              <p>顶部的“信源 / 文章 / 正文”按钮可以随时隐藏或恢复对应栏目。</p>
+              <p>外观与正文显示方式只保存在这台设备，不会写入文章或同步给团队。</p>
             </div>
-            <div class="setting-card layout-card">
-              <div>
-                <strong>三栏布局</strong>
-                <p>拖动栏目之间的分隔线调整宽度；双击分隔线也可以恢复默认布局。</p>
+            <div class="appearance-settings">
+              <div class="setting-card preference-card">
+                <div>
+                  <strong>外观主题</strong>
+                  <p>白色与暗色会应用到看板和沉浸阅读；公众号原始排版始终按浅色页面显示。</p>
+                </div>
+                <div class="preference-options" role="group" aria-label="外观主题">
+                  <button
+                    :class="{ active: appearancePreferences.theme === 'light' }"
+                    :aria-pressed="appearancePreferences.theme === 'light'"
+                    @click="setThemePreference('light')"
+                  >
+                    白色
+                  </button>
+                  <button
+                    :class="{ active: appearancePreferences.theme === 'dark' }"
+                    :aria-pressed="appearancePreferences.theme === 'dark'"
+                    @click="setThemePreference('dark')"
+                  >
+                    暗色
+                  </button>
+                </div>
               </div>
-              <button @click="emit('reset-layout')">恢复默认布局</button>
+
+              <div class="setting-card preference-card">
+                <div>
+                  <strong>默认正文显示</strong>
+                  <p>切换文章后沿用这个习惯；文章没有公众号原始 HTML 时只临时显示沉浸阅读。</p>
+                </div>
+                <div class="preference-options" role="group" aria-label="默认正文显示方式">
+                  <button
+                    :class="{ active: appearancePreferences.readingMode === 'reader' }"
+                    :aria-pressed="appearancePreferences.readingMode === 'reader'"
+                    @click="setReadingModePreference('reader')"
+                  >
+                    沉浸阅读
+                  </button>
+                  <button
+                    :class="{ active: appearancePreferences.readingMode === 'original' }"
+                    :aria-pressed="appearancePreferences.readingMode === 'original'"
+                    @click="setReadingModePreference('original')"
+                  >
+                    原始排版
+                  </button>
+                </div>
+              </div>
+
+              <div class="setting-card layout-card">
+                <div>
+                  <strong>三栏布局</strong>
+                  <p>顶部按钮可隐藏栏目；拖动分隔线调整宽度，双击分隔线恢复默认布局。</p>
+                </div>
+                <button @click="emit('reset-layout')">恢复默认布局</button>
+              </div>
             </div>
           </section>
 
@@ -167,7 +220,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(54, 43, 29, 0.42);
+  background: var(--overlay);
 }
 .settings-dialog {
   display: flex;
@@ -311,6 +364,34 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .setting-card button {
   flex: 0 0 auto;
 }
+.appearance-settings {
+  display: grid;
+  gap: 12px;
+}
+.preference-options {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+}
+.preference-options button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-dim);
+  box-shadow: none;
+}
+.preference-options button:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.preference-options button.active {
+  color: var(--accent-strong);
+  background: var(--bg-active);
+  font-weight: 650;
+}
 .update-card.error {
   border-color: color-mix(in srgb, var(--warn) 42%, var(--border));
 }
@@ -342,6 +423,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     align-items: flex-start;
     flex-direction: column;
     gap: 12px;
+  }
+  .preference-options {
+    width: 100%;
+  }
+  .preference-options button {
+    flex: 1 1 0;
   }
 }
 </style>

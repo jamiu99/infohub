@@ -4,7 +4,9 @@ import { userFacingError } from '../../shared/errors'
 import {
   toTeamArticlePayload,
   toTeamSourcePayload,
+  TEAM_SYNC_INTERVAL,
   validateTeamServerUrl,
+  validateTeamSyncIntervalMinutes,
   type TeamArticleRecord,
   type TeamArticleUpload,
   type TeamDeviceCredentials,
@@ -20,21 +22,27 @@ import { TeamSyncStorage } from './sync-storage'
 import { teamUploadValidationError } from './sync-validation'
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+type TimerHandle = ReturnType<typeof setTimeout>
+type SetTimeoutLike = (callback: () => void, delay: number) => TimerHandle
+type ClearTimeoutLike = (timer: TimerHandle) => void
 
 export interface TeamSyncClientOptions {
   paths: Paths
   serverUrl: string
   enabled: boolean
+  autoSyncEnabled?: boolean
+  intervalMinutes?: number
   credentials?: TeamDeviceCredentials | null
   fetchImpl?: FetchLike
   now?: () => number
+  setTimeoutImpl?: SetTimeoutLike
+  clearTimeoutImpl?: ClearTimeoutLike
   onCredentials: (credentials: TeamDeviceCredentials | null) => void
   onRemoteArticle: (record: TeamArticleRecord, contributedByMe: boolean) => void
   onRemoteArticlesChanged?: () => void
   onStatus?: (status: TeamStatus) => void
 }
 
-const SYNC_INTERVAL_MS = 5 * 60 * 1000
 const TEAM_API_PREFIX = '/api/v2'
 const TEAM_PULL_LIMIT = 50
 
@@ -48,26 +56,67 @@ export class TeamSyncClient {
   private storage: TeamSyncStorage
   private fetchImpl: FetchLike
   private now: () => number
+  private setTimeoutImpl: SetTimeoutLike
+  private clearTimeoutImpl: ClearTimeoutLike
   private serverUrl: string
   private enabled: boolean
+  private autoSyncEnabled: boolean
+  private intervalMinutes: number
   private credentials: TeamDeviceCredentials | null
   private lastSyncAt?: number
   private lastError?: string
+  private nextSyncAt?: number
   private syncing: Promise<TeamStatus> | null = null
-  private timer: ReturnType<typeof setInterval> | null = null
+  private timer: TimerHandle | null = null
+  private started = false
 
   constructor(private options: TeamSyncClientOptions) {
     this.storage = new TeamSyncStorage(options.paths)
     this.fetchImpl = options.fetchImpl ?? fetch
     this.now = options.now ?? Date.now
+    this.setTimeoutImpl = options.setTimeoutImpl ?? ((callback, delay) => setTimeout(callback, delay))
+    this.clearTimeoutImpl = options.clearTimeoutImpl ?? ((timer) => clearTimeout(timer))
     this.serverUrl = validateTeamServerUrl(options.serverUrl)
     this.enabled = options.enabled
+    this.autoSyncEnabled = options.autoSyncEnabled ?? true
+    this.intervalMinutes = validateTeamSyncIntervalMinutes(
+      options.intervalMinutes ?? TEAM_SYNC_INTERVAL.defaultMinutes
+    )
     this.credentials = options.credentials ?? null
   }
 
   configure(input: { serverUrl: string; enabled: boolean }): void {
     this.serverUrl = validateTeamServerUrl(input.serverUrl)
     this.enabled = input.enabled
+    this.emit()
+  }
+
+  /**
+   * 自动同步只控制定时网络请求，不改变团队连接、outbox 入队或手动 syncNow。
+   * 开启时立即同步一次；修改已开启的周期则从保存时重新等待完整周期。
+   */
+  configureSchedule(input: { autoSyncEnabled: boolean; intervalMinutes: number }): void {
+    const intervalMinutes = validateTeamSyncIntervalMinutes(input.intervalMinutes)
+    const wasEnabled = this.autoSyncEnabled
+    this.autoSyncEnabled = input.autoSyncEnabled === true
+    this.intervalMinutes = intervalMinutes
+    this.clearSchedule()
+
+    if (!this.started) {
+      this.emit()
+      return
+    }
+    if (!this.autoSyncEnabled) {
+      this.emit()
+      return
+    }
+    if (!wasEnabled) {
+      this.emit()
+      void this.syncNow()
+      return
+    }
+    // 当前轮完成时会按新周期排下一轮；没有正在同步时现在就重置倒计时。
+    if (!this.syncing) this.scheduleNext()
     this.emit()
   }
 
@@ -82,6 +131,9 @@ export class TeamSyncClient {
       state,
       enabled: this.enabled,
       serverUrl: this.serverUrl,
+      autoSyncEnabled: this.autoSyncEnabled,
+      intervalMinutes: this.intervalMinutes,
+      nextSyncAt: this.nextSyncAt,
       instanceId: credentialMatches ? this.credentials?.instanceId : undefined,
       teamName: credentialMatches ? this.credentials?.teamName : undefined,
       device: credentialMatches ? this.credentials?.device : undefined,
@@ -199,11 +251,16 @@ export class TeamSyncClient {
 
   syncNow(): Promise<TeamStatus> {
     if (this.syncing) return this.syncing
+    // 手动同步也重置自动倒计时，避免刚完成后又命中旧 timer。
+    this.clearSchedule()
     if (!this.enabled || !this.credentials || this.credentials.serverUrl !== this.serverUrl) {
+      this.scheduleNext()
+      this.emit()
       return Promise.resolve(this.status())
     }
     const run = this.performSync().then(() => {
       this.syncing = null
+      this.scheduleNext()
       this.emit()
       return this.status()
     })
@@ -212,21 +269,40 @@ export class TeamSyncClient {
     return run
   }
 
-  start(intervalMs = SYNC_INTERVAL_MS): void {
-    if (this.timer) return
-    void this.syncNow()
-    this.timer = setInterval(() => void this.syncNow(), intervalMs)
+  start(): void {
+    if (this.started) return
+    this.started = true
+    if (this.autoSyncEnabled) void this.syncNow()
+    else this.emit()
   }
 
   stop(): void {
-    if (this.timer) clearInterval(this.timer)
-    this.timer = null
+    this.started = false
+    this.clearSchedule()
   }
 
   /** 停止后续定时器并等待当前网络同步及其本地写入收尾。 */
   async stopAndWait(): Promise<void> {
     this.stop()
     await this.syncing
+  }
+
+  private clearSchedule(): void {
+    if (this.timer !== null) this.clearTimeoutImpl(this.timer)
+    this.timer = null
+    this.nextSyncAt = undefined
+  }
+
+  private scheduleNext(): void {
+    if (!this.started || !this.autoSyncEnabled) return
+    this.clearSchedule()
+    const delay = this.intervalMinutes * 60_000
+    this.nextSyncAt = this.now() + delay
+    this.timer = this.setTimeoutImpl(() => {
+      this.timer = null
+      this.nextSyncAt = undefined
+      void this.syncNow()
+    }, delay)
   }
 
   private async performSync(): Promise<void> {

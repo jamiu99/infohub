@@ -32,6 +32,7 @@ const api: InfohubApi = {
   article: {
     list: (opts) => ipcRenderer.invoke(IPC.articleList, opts),
     get: (id) => ipcRenderer.invoke(IPC.articleGet, id),
+    getContentHtml: (id) => ipcRenderer.invoke(IPC.articleGetContentHtml, id),
     markRead: (id, read) => ipcRenderer.invoke(IPC.articleMarkRead, id, read),
     markAllRead: (opts) => ipcRenderer.invoke(IPC.articleMarkAllRead, opts),
     archive: (id) => ipcRenderer.invoke(IPC.articleArchive, id),
@@ -40,6 +41,7 @@ const api: InfohubApi = {
   },
   team: {
     status: () => ipcRenderer.invoke(IPC.teamStatus),
+    updateSettings: (input) => ipcRenderer.invoke(IPC.teamUpdateSettings, input),
     join: (input) => ipcRenderer.invoke(IPC.teamJoin, input),
     leave: () => ipcRenderer.invoke(IPC.teamLeave),
     syncNow: () => ipcRenderer.invoke(IPC.teamSyncNow)

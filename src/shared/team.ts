@@ -4,6 +4,27 @@ export const DEFAULT_TEAM_SERVER_URL = 'https://home.agent-wiki.cn:18038'
 /** 客户端 push JSON 请求体预算；服务端限制应更高（当前配套 API v2 为 16 MiB）。 */
 export const TEAM_PUSH_BODY_BUDGET_BYTES = 12 * 1024 * 1024
 
+/** 团队增量同步很轻，但过短周期会放大多设备轮询；关闭自动同步时仍可手动同步。 */
+export const TEAM_SYNC_INTERVAL = {
+  minMinutes: 1,
+  maxMinutes: 24 * 60,
+  defaultMinutes: 5
+} as const
+
+export function validateTeamSyncIntervalMinutes(value: unknown): number {
+  if (
+    typeof value !== 'number' ||
+    !Number.isInteger(value) ||
+    value < TEAM_SYNC_INTERVAL.minMinutes ||
+    value > TEAM_SYNC_INTERVAL.maxMinutes
+  ) {
+    throw new Error(
+      `团队自动同步周期必须是 ${TEAM_SYNC_INTERVAL.minMinutes}–${TEAM_SYNC_INTERVAL.maxMinutes} 分钟的整数`
+    )
+  }
+  return value
+}
+
 export function normalizeRssFeedUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null
   try {
@@ -92,6 +113,10 @@ export interface TeamStatus {
   state: TeamConnectionState
   enabled: boolean
   serverUrl: string
+  /** 只控制定时网络同步；关闭后仍继续写 outbox，也允许手动 syncNow。 */
+  autoSyncEnabled: boolean
+  intervalMinutes: number
+  nextSyncAt?: number
   instanceId?: string
   teamName?: string
   device?: TeamDevice

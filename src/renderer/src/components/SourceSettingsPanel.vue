@@ -36,8 +36,8 @@ function sourceType(source: Source): string {
 
 function fetchedAt(source: Source): string {
   return source.lastFetchedAt
-    ? `最近拉取：${new Date(source.lastFetchedAt).toLocaleString()}`
-    : '尚未完成首次拉取'
+    ? `最近检查：${new Date(source.lastFetchedAt).toLocaleString()}`
+    : '尚未完成首次检查'
 }
 
 function showMessage(value: string, kind: 'success' | 'error' = 'success'): void {
@@ -51,8 +51,8 @@ async function setEnabled(source: Source, enabled: boolean): Promise<void> {
   try {
     await store.setSourceEnabled(source.id, enabled)
     showMessage(enabled
-      ? `“${source.name}”已加入全部拉取和自动采集。`
-      : `“${source.name}”已暂停自动采集；仍可手动拉取。`)
+      ? `已为“${source.name}”开启自动检查新文章。`
+      : `已关闭“${source.name}”的自动检查；仍可随时手动检查。`)
   } catch (error) {
     showMessage(userFacingError(error, '来源状态保存失败'), 'error')
   } finally {
@@ -67,10 +67,10 @@ async function pullLatest(sourceId?: string): Promise<void> {
     await store.refresh(sourceId)
     const source = sources.value.find((item) => item.id === sourceId)
     showMessage(source
-      ? `已开始拉取“${source.name}”的最新列表。不会回溯未入库旧文章。`
-      : '已开始拉取所有启用来源的最新列表。不会回溯未入库旧文章。')
+      ? `已开始检查“${source.name}”的新文章。不会向前翻找更早内容。`
+      : '已开始检查所有启用来源的新文章。不会向前翻找更早内容。')
   } catch (error) {
-    showMessage(userFacingError(error, '拉取最新内容失败'), 'error')
+    showMessage(userFacingError(error, '检查新文章失败'), 'error')
   } finally {
     actionBusy.value = false
   }
@@ -80,15 +80,15 @@ async function removeSelected(): Promise<void> {
   const source = selectedSource.value
   if (!source || actionBusy.value) return
   const confirmed = window.confirm(
-    `确认取消关注“${source.name}”？\n\n纯本机文章及正文会被删除；已有团队副本会保留在团队视图。`
+    `确认删除来源“${source.name}”？\n\n仅保存在本机的该来源文章及正文会一起删除；已同步到团队的副本会保留在团队视图。此操作不能撤销。`
   )
   if (!confirmed) return
   actionBusy.value = true
   try {
     await store.removeSource(source.id)
-    showMessage(`已取消关注“${source.name}”。`)
+    showMessage(`已删除来源“${source.name}”及仅保存在本机的文章。`)
   } catch (error) {
-    showMessage(userFacingError(error, '取消关注失败'), 'error')
+    showMessage(userFacingError(error, '删除来源失败'), 'error')
   } finally {
     actionBusy.value = false
   }
@@ -97,21 +97,21 @@ async function removeSelected(): Promise<void> {
 
 <template>
   <div class="source-settings">
-    <section class="fetch-guide" aria-label="抓取方式说明">
-      <article>
-        <span class="step">01</span>
-        <div>
-          <strong>拉取最新</strong>
-          <p>读取来源当前的最新列表。公众号通常只取最新一页，不会翻页寻找从未入库的旧文章。</p>
-        </div>
-      </article>
-      <article>
-        <span class="step">02</span>
-        <div>
-          <strong>处理已入库历史</strong>
-          <p>只处理资料库里已经存在的文章，可选本机离线重解析或逐篇联网重抓正文。</p>
-        </div>
-      </article>
+    <section class="action-guide" aria-label="新文章与已保存文章说明">
+      <header>
+        <strong>这是两个独立操作，不分先后</strong>
+        <p>平时使用“检查新文章”；只有已保存文章的正文缺失或显示异常时，才需要“修复已保存文章”。</p>
+      </header>
+      <div class="guide-actions">
+        <article>
+          <strong>检查新文章</strong>
+          <p>查看来源目前展示的最新内容，发现新文章后保存。不会向前翻找很早的文章。</p>
+        </article>
+        <article>
+          <strong>修复已保存文章</strong>
+          <p>只处理资料库中已有的文章，不会发现或添加新文章。相关选项默认收起。</p>
+        </article>
+      </div>
     </section>
 
     <section class="source-console">
@@ -134,7 +134,7 @@ async function removeSelected(): Promise<void> {
           <span class="source-glyph" :class="source.type">{{ source.type === 'wechat' ? '微' : 'R' }}</span>
           <span class="source-copy">
             <strong>{{ source.name }}</strong>
-            <small>{{ sourceType(source) }} · {{ source.enabled ? '参与自动采集' : '已暂停' }}</small>
+            <small>{{ sourceType(source) }} · {{ source.enabled ? '自动检查已开启' : '仅手动检查' }}</small>
           </span>
           <span class="status-dot" :class="{ enabled: source.enabled }"></span>
         </button>
@@ -150,7 +150,7 @@ async function removeSelected(): Promise<void> {
           :disabled="collectionBusy || actionBusy || !sources.some((source) => source.enabled)"
           @click="pullLatest()"
         >
-          拉取所有启用来源最新
+          检查所有启用来源
         </button>
       </aside>
 
@@ -169,17 +169,20 @@ async function removeSelected(): Promise<void> {
                 :disabled="actionBusy"
                 @change="setEnabled(selectedSource, ($event.target as HTMLInputElement).checked)"
               />
-              <span>{{ selectedSource.enabled ? '参与自动采集' : '暂停自动采集' }}</span>
+              <span>
+                <strong>自动检查新文章</strong>
+                <small>{{ selectedSource.enabled ? '已开启' : '已关闭，仍可手动检查' }}</small>
+              </span>
             </label>
           </header>
 
           <div class="latest-action">
             <div>
-              <strong>只拉取这个来源的最新内容</strong>
+              <strong>检查这个来源的新文章</strong>
               <p>
                 {{ selectedSource.type === 'wechat'
-                  ? '请求公众号最新一页并补齐新文章正文；不回溯更早、尚未入库的文章。'
-                  : '读取当前 Feed 内容；不会对已入库文章逐篇重新请求正文。' }}
+                  ? '查看公众号目前展示的最新一页，发现新文章后保存正文；不会向前翻找更早内容。'
+                  : '查看当前 Feed 中是否有新内容并保存；不会重新处理已经保存的文章。' }}
               </p>
             </div>
             <button
@@ -187,24 +190,28 @@ async function removeSelected(): Promise<void> {
               :disabled="collectionBusy || actionBusy"
               @click="pullLatest(selectedSource.id)"
             >
-              {{ collectionBusy ? '任务进行中…' : '拉取该来源最新' }}
+              {{ collectionBusy ? '任务进行中…' : '检查新文章' }}
             </button>
           </div>
 
-          <ArticleMaintenancePanel :source-id="selectedSource.id" />
+          <ArticleMaintenancePanel
+            :key="selectedSource.id"
+            scope="source"
+            :source-id="selectedSource.id"
+          />
 
           <div class="danger-zone">
             <div>
-              <strong>取消关注</strong>
-              <p>会清理该来源的纯本机文章；这是删除动作，不是暂停采集。</p>
+              <strong>删除这个来源</strong>
+              <p>停止关注，并删除仅保存在本机的该来源文章和正文；团队副本仍会保留。此操作不能撤销。</p>
             </div>
             <button class="danger" :disabled="actionBusy || collectionBusy" @click="removeSelected">
-              取消关注
+              删除来源及本机文章
             </button>
           </div>
         </template>
         <div v-else class="source-placeholder">
-          选择一个来源后，可单独控制自动采集、拉取最新和历史正文维护。
+          选择一个来源后，可设置自动检查、手动检查新文章，以及修复已保存文章。
         </div>
       </div>
     </section>
@@ -212,6 +219,8 @@ async function removeSelected(): Promise<void> {
     <p v-if="message" class="action-message" :class="messageKind" role="status">
       {{ message }}
     </p>
+
+    <ArticleMaintenancePanel scope="all" />
 
     <AddSourceDialog v-if="showAdd" @close="showAdd = false" />
   </div>
@@ -222,22 +231,35 @@ async function removeSelected(): Promise<void> {
   display: grid;
   gap: 18px;
 }
-.fetch-guide {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.action-guide {
   border: 1px solid var(--border);
   background: var(--bg-subtle);
 }
-.fetch-guide article {
-  display: flex;
-  gap: 12px;
-  padding: 15px 16px;
+.action-guide > header {
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--border);
 }
-.fetch-guide article + article {
+.action-guide > header strong {
+  font-size: 13px;
+}
+.action-guide > header p {
+  margin: 4px 0 0;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.guide-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.guide-actions article {
+  padding: 13px 16px;
+}
+.guide-actions article + article {
   border-left: 1px solid var(--border);
 }
-.fetch-guide strong,
-.fetch-guide p,
+.guide-actions strong,
+.guide-actions p,
 .no-sources p,
 .latest-action p,
 .source-title h4,
@@ -246,19 +268,13 @@ async function removeSelected(): Promise<void> {
 .action-message {
   margin: 0;
 }
-.fetch-guide p,
+.guide-actions p,
 .latest-action p,
 .danger-zone p {
   margin-top: 4px;
   color: var(--text-dim);
   font-size: 12px;
   line-height: 1.6;
-}
-.step {
-  color: var(--accent);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.8px;
 }
 .source-console {
   display: grid;
@@ -409,6 +425,19 @@ async function removeSelected(): Promise<void> {
   color: var(--text-secondary);
   font-size: 11.5px;
 }
+.source-toggle > span {
+  display: flex;
+  flex-direction: column;
+}
+.source-toggle strong {
+  font-size: 11.5px;
+  font-weight: 650;
+}
+.source-toggle small {
+  margin-top: 2px;
+  color: var(--text-dim);
+  font-size: 10px;
+}
 .latest-action,
 .danger-zone {
   padding: 16px 0;
@@ -445,11 +474,11 @@ async function removeSelected(): Promise<void> {
   color: var(--warn);
 }
 @media (max-width: 760px) {
-  .fetch-guide,
+  .guide-actions,
   .source-console {
     grid-template-columns: 1fr;
   }
-  .fetch-guide article + article,
+  .guide-actions article + article,
   .source-picker {
     border-left: 0;
     border-right: 0;

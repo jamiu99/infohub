@@ -2,7 +2,7 @@
 
 > 上级：[overview.md](overview.md) · 契约：[contract.md](contract.md)
 
-存储分三层：**Raw 是按内容寻址的不可变抓取证据；Article Markdown 与其 sidecar 是 infohub 管理的当前规范化投影；SQLite 是可重建索引。** 外部处理结果位于 `outputs/`，不参与 Store、团队同步或索引。schema v3 在 v2 的阅读状态、去重键基础上，增加可由 Article 文件重建的本机团队贡献标记；微信公众号 HTML 不需要新增 SQLite 列。
+存储分三层：**Raw 是按内容寻址的不可变抓取证据；Article Markdown 与其 sidecar 是 infohub 管理的当前规范化投影；SQLite 是可重建索引。** 外部处理结果位于 `outputs/`，不参与 Store、团队同步或索引。schema v3 在 v2 的阅读状态、去重键基础上增加可由 Article 文件重建的本机团队贡献标记；SQLite 列表投影另缓存来源名和正文 sidecar 路径，用于避免热路径读取 Markdown。
 
 ## 运行时布局
 
@@ -67,7 +67,7 @@ updatedAt: 1750925200000
 - `articles/.../<articleId>.<content-sha256>.content.html`：版本化正文投影；经典图文保留外层 `#js_content`、节点顺序和内联样式，图片消息生成确定性的图片/图注结构。准确路径以 Article frontmatter 为准。
 - `raw/.../pages/<content-sha256>.page.html`：HTTP 响应的完整未改写页面，按页面内容 SHA-256 寻址，供诊断和离线重解析。
 
-`article:list` 只读 Markdown/frontmatter 并返回轻量 Article；`article:get` 才依据受根目录约束的 `contentHtmlPath` 读取正文 HTML。这样列表与同步索引不会反复搬运大文本。
+`article:list` 直接查询 SQLite 并返回 `ArticleListItem`，不读取任何 Markdown；`article:get` 只读取选中的单篇 Markdown；`article:getContentHtml` 才依据受根目录约束的 `contentHtmlPath` 读取正文 HTML。这样切换来源和沉浸阅读不会扫描资料库或搬运无关大文本。
 
 ## 当前 SQLite schema
 
@@ -80,7 +80,9 @@ CREATE TABLE articles (
   published_at  INTEGER,
   source_id     TEXT,
   source_type   TEXT,
+  source_name   TEXT,
   source_url    TEXT,
+  content_html_path TEXT,
   summary       TEXT,
   score         INTEGER,
   staleness     TEXT,
@@ -106,7 +108,7 @@ CREATE TABLE store_meta (
 );
 ```
 
-另有 `published_at`、`source_id` 普通索引。`contributed_by_me` 由 Article frontmatter 的 `team.contributedByMe` 派生，用于“我的 / 团队”筛选；无 `team` 的旧文件默认是本机贡献。`summary/score/staleness/tags` 列只为兼容已发布的 v0.1.0 schema，不是产品核心字段。**FTS5 当前未创建**，全文检索属于后续能力。
+另有 `published_at`、`source_id` 普通索引。`source_name` 直接支持轻量列表；`content_html_path` 只用于定位按需 sidecar。`contributed_by_me` 由 Article frontmatter 的 `team.contributedByMe` 派生，用于“我的 / 团队”筛选；无 `team` 的旧文件默认是本机贡献。`summary/score/staleness/tags` 列只为兼容已发布的 v0.1.0 schema，不是产品核心字段。**FTS5 当前未创建**，全文检索属于后续能力。
 
 ## 团队同步状态
 
@@ -165,11 +167,11 @@ CREATE TABLE store_meta (
 
 ### 外部文件变化
 
-- App 每次启动完整重建索引。
-- 运行中读取文章列表或未读数前，`syncIndexFromFiles()` 最多每 500ms 扫描一次 Markdown 并 upsert 索引。
-- 文件扫描是 Store 的崩溃恢复和旧版本迁移机制，不是外部写入 API。外部消费者不得修改 Article/Raw；它们的结果只写 `outputs/<producer>/`，该目录不会被扫描或回灌。
+- App 正常启动直接使用现有 SQLite，不再每次完整扫描。索引首次创建、投影结构升级，或 `index_dirty=1` 表明上次在 Markdown rename 与 SQLite 提交之间中断时，才从全部 Article 文件重建。
+- `saveArticle()` 在文件切换前写 dirty 标记，文件和索引一致后清除；批量已读使用批次级 dirty 与单个 SQLite 事务。列表、未读统计和筛选不调用文件扫描。
+- `syncIndexFromFiles()` / `rebuildIndex()` 仍保留为显式恢复能力和迁移机制，不是外部写入 API。外部消费者不得修改 Article/Raw；它们的结果只写 `outputs/<producer>/`，该目录不会被扫描或回灌。
 
-`rebuildIndex()` 目前仍是 Store API，没有独立 CLI/IPC；外部直接删除文件时，运行中增量同步不会主动清除旧索引，重启/完整 rebuild 会清理。
+`rebuildIndex()` 目前仍是 Store API，没有独立 CLI/IPC；外部直接修改或删除文件不会在普通 UI 查询时自动回灌，必须显式 rebuild。这个限制与外部消费者只读 `articles/` 的正式契约一致。
 
 ## 资料库定位与迁移
 

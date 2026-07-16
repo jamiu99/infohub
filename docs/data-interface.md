@@ -113,7 +113,7 @@ FROM articles
 GROUP BY source_type, source_id;
 ```
 
-SQLite 是加速层，不是唯一数据源：启动时会从 Article 文件完整重建；运行中最多每 500ms 检查一次磁盘 Article 文件变化。该恢复机制不授权外部回写；消费者可以只读索引筛选，再根据 `file_path` 读取完整 Markdown。
+SQLite 是加速层，不是唯一数据源：首次建库、索引投影升级或检测到上次写入中断时会从 Article 文件完整重建；正常启动和 UI 查询直接使用现有索引，不扫描 Markdown。该恢复机制不授权外部回写；消费者可以只读索引筛选，再根据 `file_path` 读取完整 Markdown。外部若违反契约修改 Article，必须由 infohub 显式重建索引，不能依赖普通列表自动回灌。
 
 ## 消费约定
 

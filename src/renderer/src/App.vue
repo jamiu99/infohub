@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, type CSSProperties } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, type CSSProperties } from 'vue'
 import { store } from './stores/app'
 import SourceList from './components/SourceList.vue'
 import ArticleFlow from './components/ArticleFlow.vue'
@@ -7,6 +7,7 @@ import ArticleDetail from './components/ArticleDetail.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import UpdateBanner from './components/UpdateBanner.vue'
 import brandLogoUrl from '../../../resources/branding/infohub-icon-v1.png'
+import { appearancePreferences } from './preferences'
 import {
   MIN_PANE_WIDTH,
   defaultLayout,
@@ -39,6 +40,14 @@ const settingsSection = ref<SettingsSection>('sources')
 const paneElements: Partial<Record<PaneId, HTMLElement>> = {}
 const visiblePanes = computed(() => paneDefinitions.filter((pane) => layout[pane.id].visible))
 let removeResizeListeners: (() => void) | null = null
+
+watch(
+  () => appearancePreferences.theme,
+  (theme) => {
+    document.documentElement.dataset.theme = theme
+  },
+  { immediate: true }
+)
 
 function saveLayout(): void {
   localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layout))

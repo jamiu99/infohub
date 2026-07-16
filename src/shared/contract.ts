@@ -82,6 +82,19 @@ export interface Article {
   updatedAt: number
 }
 
+/**
+ * 阅读列表只需要轻量索引字段。正文、扩展元数据和 HTML sidecar 都必须在打开文章后按需读取，
+ * 避免切换信源时同步读取并跨 IPC 传输数百篇完整文章。
+ */
+export interface ArticleListItem {
+  id: string
+  title: string
+  publishedAt: number
+  source: { id: string; type: string; name: string }
+  read: boolean
+  archived: boolean
+}
+
 /** article:get 的详情结果；article:list 不加载大体积 HTML sidecar。 */
 export interface ArticleDetail extends Article {
   contentHtml?: string

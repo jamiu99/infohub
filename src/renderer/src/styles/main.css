@@ -1,36 +1,65 @@
-/* 设计系统 —— 米色纸张、扁平层级、克制的青绿色强调。 */
+/* 设计系统 —— 白色/暗色双主题、扁平层级、克制的青绿色强调。 */
 :root {
-  --bg-canvas: #e8dfd0;
-  --bg-toolbar: #efe6d7;
-  --bg: #f5efe4;
-  --bg-reading: #faf5eb;
-  --bg-sidebar: #eee5d6;
-  --bg-elevated: #fbf7ef;
-  --bg-hover: #e9dfcf;
-  --bg-active: #dfd3bf;
-  --bg-subtle: #f0e8dc;
-  --border: #d9ccb8;
-  --border-strong: #c6b69e;
-  --text: #302a22;
-  --text-secondary: #665d50;
-  --text-dim: #918573;
+  color-scheme: light;
+  --bg-canvas: #edf1ef;
+  --bg-toolbar: #ffffff;
+  --bg: #f7f9f8;
+  --bg-reading: #ffffff;
+  --bg-sidebar: #f2f5f3;
+  --bg-elevated: #ffffff;
+  --bg-hover: #edf2ef;
+  --bg-active: #e1ebe7;
+  --bg-subtle: #f5f7f6;
+  --border: #dce3df;
+  --border-strong: #c5d0ca;
+  --text: #1e2925;
+  --text-secondary: #56635e;
+  --text-dim: #7d8b85;
   --accent: #2e756b;
   --accent-strong: #205e57;
   --accent-hover: #245f57;
-  --accent-soft: #dce9e2;
+  --accent-soft: #dcebe5;
   --unread: #b05d3e;
   --ok: #47755d;
   --warn: #a34f38;
   --cooldown: #a8752f;
+  --overlay: rgba(25, 36, 32, 0.38);
   --radius: 7px;
   --radius-sm: 5px;
   --radius-lg: 10px;
   --shadow-sm: none;
-  --shadow-md: 0 14px 38px rgba(67, 52, 34, 0.16);
+  --shadow-md: 0 14px 38px rgba(29, 44, 38, 0.15);
   --font: -apple-system, "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC",
     "Microsoft YaHei", "WenQuanYi Micro Hei", system-ui, sans-serif;
   --font-reading: "Noto Serif CJK SC", "Noto Serif SC", "Source Han Serif SC",
     "Songti SC", "STSong", Georgia, serif;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg-canvas: #0f1412;
+  --bg-toolbar: #151b18;
+  --bg: #111714;
+  --bg-reading: #151b18;
+  --bg-sidebar: #121815;
+  --bg-elevated: #1a211e;
+  --bg-hover: #232c28;
+  --bg-active: #2a3833;
+  --bg-subtle: #1a211e;
+  --border: #2d3833;
+  --border-strong: #425049;
+  --text: #e9efec;
+  --text-secondary: #b6c2bd;
+  --text-dim: #899890;
+  --accent: #71b8aa;
+  --accent-strong: #8bcabd;
+  --accent-hover: #5ea899;
+  --accent-soft: #253d36;
+  --unread: #e18a69;
+  --ok: #7fba98;
+  --warn: #e08168;
+  --cooldown: #d2a45e;
+  --overlay: rgba(0, 0, 0, 0.62);
+  --shadow-md: 0 18px 44px rgba(0, 0, 0, 0.38);
 }
 * {
   box-sizing: border-box;

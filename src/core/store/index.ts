@@ -12,11 +12,18 @@ import {
   rmSync
 } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
-import type { Article, ArticleDetail, Source, RawItem } from '../../shared/contract'
+import type {
+  Article,
+  ArticleDetail,
+  ArticleListItem,
+  Source,
+  RawItem
+} from '../../shared/contract'
 import type { Paths } from '../paths'
 import { articleToMarkdown, parseArticleMarkdown } from './markdown'
 
 const STORE_SCHEMA_VERSION = 3
+const INDEX_PROJECTION_VERSION = 1
 const FILE_SYNC_THROTTLE_MS = 500
 
 export interface ArticleArtifacts {
@@ -26,6 +33,11 @@ export interface ArticleArtifacts {
   pageHtml?: string
   /** 未指定时仅 complete 状态会提升为 pageHtmlPath；false 可显式只留诊断快照。 */
   promotePageHtml?: boolean
+}
+
+interface SaveArticleOptions {
+  /** 批量事务自行管理 dirty 标记时关闭单篇切换；仅供 Store 内部使用。 */
+  manageIndexDirty?: boolean
 }
 
 /** 后台维护/重放使用；与看板筛选和分页上限相互独立。 */
@@ -92,8 +104,9 @@ export class Store {
     this.db = new DatabaseSync(paths.index)
     this.initSchema()
     this.migrateLegacyFiles()
-    // 文件是内容源：每次启动从文件完整恢复文章索引与 seen_items。
-    this.rebuildIndex()
+    // 文件仍是真相源，但应用自身每次写文件都会同步更新 SQLite。只有索引首次创建、
+    // 投影结构升级或上次写入中断时才全量重建，正常启动不再扫描全部 Markdown。
+    this.ensureIndex()
   }
 
   private initSchema(): void {
@@ -104,7 +117,9 @@ export class Store {
         published_at INTEGER,
         source_id    TEXT,
         source_type  TEXT,
+        source_name  TEXT,
         source_url   TEXT,
+        content_html_path TEXT,
         summary      TEXT,
         score        INTEGER,
         staleness    TEXT,
@@ -133,6 +148,34 @@ export class Store {
     if (!columns.some((column) => column.name === 'contributed_by_me')) {
       this.db.exec('ALTER TABLE articles ADD COLUMN contributed_by_me INTEGER NOT NULL DEFAULT 1')
     }
+    if (!columns.some((column) => column.name === 'source_name')) {
+      this.db.exec('ALTER TABLE articles ADD COLUMN source_name TEXT')
+    }
+    if (!columns.some((column) => column.name === 'content_html_path')) {
+      this.db.exec('ALTER TABLE articles ADD COLUMN content_html_path TEXT')
+    }
+  }
+
+  private metaValue(key: string): string | undefined {
+    const row = this.db.prepare('SELECT value FROM store_meta WHERE key = ?').get(key) as
+      | { value: string }
+      | undefined
+    return row?.value
+  }
+
+  private setMeta(key: string, value: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO store_meta (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+      )
+      .run(key, value)
+  }
+
+  private ensureIndex(): void {
+    const projectionVersion = Number(this.metaValue('index_projection_version') ?? 0)
+    const dirty = this.metaValue('index_dirty') === '1'
+    if (projectionVersion !== INDEX_PROJECTION_VERSION || dirty) this.rebuildIndex()
   }
 
   /**
@@ -146,6 +189,8 @@ export class Store {
     const version = Number(row?.value ?? 1)
     if (version >= STORE_SCHEMA_VERSION) return
 
+    // 迁移会直接改写 Markdown；留下 dirty 标记，让后续 ensureIndex 重建文章与 seen 映射。
+    this.setMeta('index_dirty', '1')
     const rows = this.db
       .prepare('SELECT file_path, read, archived FROM articles WHERE file_path IS NOT NULL')
       .all() as Array<{ file_path: string; read: number; archived: number }>
@@ -227,7 +272,11 @@ export class Store {
   }
 
   // —— 文章：文件为源 + 索引 ——
-  saveArticle(article: Article, artifacts: ArticleArtifacts = {}): Article {
+  saveArticle(
+    article: Article,
+    artifacts: ArticleArtifacts = {},
+    options: SaveArticleOptions = {}
+  ): Article {
     const relPath = article.filePath ?? join(article.source.type, article.source.id, `${article.id}.md`)
     const filePath = resolveInside(this.paths.articles, relPath)
     const dir = dirname(filePath)
@@ -258,9 +307,13 @@ export class Store {
     }
 
     const withPath = { ...article, ...(content ? { content } : {}), filePath: relPath }
+    // 若进程在 Markdown rename 与 SQLite upsert 之间退出，下次启动会从文件恢复索引。
+    const manageIndexDirty = options.manageIndexDirty !== false
+    if (manageIndexDirty) this.setMeta('index_dirty', '1')
     writeFileAtomic(filePath, articleToMarkdown(withPath))
     this.upsertIndex(withPath)
     if (withPath.externalId) this.markSeen(withPath.source.id, withPath.externalId, withPath.id)
+    if (manageIndexDirty) this.setMeta('index_dirty', '0')
     // Markdown 与索引都已成功指向新版本后，旧 projection 才可清理。崩溃发生在这里之前
     // 最多留下一个无引用旧文件，不会让当前文章失去可用正文。
     if (
@@ -281,13 +334,15 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO articles
-          (id, title, published_at, source_id, source_type, source_url, summary, score,
-          staleness, tags, read, archived, file_path, created_at, updated_at, contributed_by_me)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          (id, title, published_at, source_id, source_type, source_name, source_url,
+          content_html_path, summary, score, staleness, tags, read, archived, file_path,
+          created_at, updated_at, contributed_by_me)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET
            title=excluded.title, published_at=excluded.published_at,
            source_id=excluded.source_id, source_type=excluded.source_type,
-           source_url=excluded.source_url, summary=excluded.summary,
+           source_name=excluded.source_name, source_url=excluded.source_url,
+           content_html_path=excluded.content_html_path, summary=excluded.summary,
            score=excluded.score, staleness=excluded.staleness, tags=excluded.tags,
            read=excluded.read, archived=excluded.archived, file_path=excluded.file_path,
            created_at=excluded.created_at, updated_at=excluded.updated_at,
@@ -299,7 +354,9 @@ export class Store {
         a.publishedAt,
         a.source.id,
         a.source.type,
+        a.source.name,
         a.sourceUrl,
+        a.content?.contentHtmlPath ?? null,
         a.summary ?? null,
         a.score ?? null,
         a.staleness ?? null,
@@ -317,8 +374,7 @@ export class Store {
     sourceId?: string
     filter?: 'unread' | 'all' | 'archived'
     scope?: 'mine' | 'team'
-  }): Article[] {
-    this.syncIndexFromFiles()
+  }): ArticleListItem[] {
     const where: string[] = []
     const params: string[] = []
     const filter = opts?.filter ?? 'all'
@@ -331,10 +387,31 @@ export class Store {
     else if (filter === 'archived') where.push('archived = 1')
     else where.push('archived = 0')
     const sql =
-      `SELECT id FROM articles ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ` +
+      `SELECT id, title, published_at, source_id, source_type, source_name, read, archived
+       FROM articles ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ` +
       'ORDER BY published_at DESC LIMIT 500'
-    const rows = this.db.prepare(sql).all(...params) as Array<{ id: string }>
-    return rows.map((r) => this.getArticle(r.id)).filter((a): a is Article => !!a)
+    const rows = this.db.prepare(sql).all(...params) as Array<{
+      id: string
+      title: string
+      published_at: number
+      source_id: string
+      source_type: string
+      source_name: string | null
+      read: number
+      archived: number
+    }>
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      publishedAt: row.published_at,
+      source: {
+        id: row.source_id,
+        type: row.source_type,
+        name: row.source_name || row.source_id
+      },
+      read: !!row.read,
+      archived: !!row.archived
+    }))
   }
 
   /**
@@ -342,7 +419,6 @@ export class Store {
    * mineOnly=true 时排除仅来自团队的文章；false/未传时枚举本地索引全部文章。
    */
   listArticlesForMaintenance(opts: MaintenanceArticleQuery = {}): Article[] {
-    this.syncIndexFromFiles(true)
     const where: string[] = []
     const params: string[] = []
     if (opts.sourceId) {
@@ -365,7 +441,6 @@ export class Store {
 
   /** 首次加入团队时使用：枚举全部本机贡献（含已归档），不受看板 500 条上限影响。 */
   listContributedArticlesForSync(): ArticleDetail[] {
-    this.syncIndexFromFiles(true)
     const rows = this.db
       .prepare('SELECT id FROM articles WHERE contributed_by_me = 1 ORDER BY published_at ASC')
       .all() as Array<{ id: string }>
@@ -393,14 +468,23 @@ export class Store {
   getArticleDetail(id: string): ArticleDetail | null {
     const article = this.getArticle(id)
     if (!article) return null
-    const relPath = article.content?.contentHtmlPath
-    if (!relPath) return article
+    const contentHtml = this.getArticleContentHtml(id)
+    return contentHtml ? { ...article, contentHtml } : article
+  }
+
+  /** 原始排版切换时才读取 HTML sidecar；列表与沉浸阅读都不会触碰大文件。 */
+  getArticleContentHtml(id: string): string | null {
+    const row = this.db.prepare('SELECT content_html_path FROM articles WHERE id = ?').get(id) as
+      | { content_html_path: string | null }
+      | undefined
+    const relPath = row?.content_html_path
+    if (!relPath) return null
     try {
       const full = resolveInside(this.paths.articles, relPath)
-      if (!existsSync(full)) return article
-      return { ...article, contentHtml: readFileSync(full, 'utf8') }
+      if (!existsSync(full)) return null
+      return readFileSync(full, 'utf8')
     } catch {
-      return article
+      return null
     }
   }
 
@@ -472,18 +556,24 @@ export class Store {
     const rows = this.db
       .prepare('SELECT id, file_path FROM articles WHERE source_id = ?')
       .all(sourceId) as Array<{ id: string; file_path: string | null }>
+    if (rows.length === 0) return
+    this.setMeta('index_dirty', '1')
     const retained: Article[] = []
     for (const r of rows) {
       const article = this.getArticle(r.id)
       if (article?.team?.remoteId) {
-        retained.push(this.saveArticle({
-          ...article,
-          team: {
-            ...article.team,
-            contributedByMe: false,
-            detachedFromLocalSource: true
-          }
-        }))
+        retained.push(this.saveArticle(
+          {
+            ...article,
+            team: {
+              ...article.team,
+              contributedByMe: false,
+              detachedFromLocalSource: true
+            }
+          },
+          {},
+          { manageIndexDirty: false }
+        ))
         continue
       }
       if (r.file_path) {
@@ -510,6 +600,7 @@ export class Store {
     for (const article of retained) {
       if (article.externalId) this.markSeen(sourceId, article.externalId, article.id)
     }
+    this.setMeta('index_dirty', '0')
   }
 
   setRead(id: string, read: boolean): void {
@@ -517,7 +608,6 @@ export class Store {
   }
 
   markAllRead(opts: { sourceId?: string; scope?: 'mine' | 'team' } = {}): number {
-    this.syncIndexFromFiles(true)
     const where = ['read = 0', 'archived = 0']
     const params: string[] = []
     if ((opts.scope ?? 'mine') === 'mine') where.push('contributed_by_me = 1')
@@ -528,8 +618,30 @@ export class Store {
     const rows = this.db
       .prepare(`SELECT id FROM articles WHERE ${where.join(' AND ')} ORDER BY published_at DESC`)
       .all(...params) as Array<{ id: string }>
-    for (const row of rows) this.setRead(row.id, true)
-    return rows.length
+    if (rows.length === 0) return 0
+
+    // 阅读状态仍写回 Markdown，但 dirty 标记与 SQLite 提交按整个批次处理，避免每篇
+    // 都产生额外的自动提交。若中途失败，dirty 会保留并在下次启动按文件恢复。
+    this.setMeta('index_dirty', '1')
+    let updated = 0
+    this.db.exec('BEGIN')
+    try {
+      for (const row of rows) {
+        const article = this.getArticle(row.id)
+        if (!article) continue
+        const next = { ...article, read: true }
+        const full = resolveInside(this.paths.articles, article.filePath!)
+        writeFileAtomic(full, articleToMarkdown(next))
+        this.upsertIndex(next)
+        updated++
+      }
+      this.db.exec('COMMIT')
+      this.setMeta('index_dirty', '0')
+      return updated
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
+    }
   }
 
   setArchived(id: string, archived: boolean): void {
@@ -544,7 +656,6 @@ export class Store {
   }
 
   unreadCounts(): Record<string, number> {
-    this.syncIndexFromFiles()
     const rows = this.db
       .prepare(
         'SELECT source_id, COUNT(*) c FROM articles WHERE read = 0 AND archived = 0 AND contributed_by_me = 1 GROUP BY source_id'
@@ -596,6 +707,8 @@ export class Store {
     try {
       this.db.exec('DELETE FROM articles; DELETE FROM seen_items;')
       const n = this.syncIndexFromFiles(true)
+      this.setMeta('index_projection_version', String(INDEX_PROJECTION_VERSION))
+      this.setMeta('index_dirty', '0')
       this.db.exec('COMMIT')
       return n
     } catch (error) {

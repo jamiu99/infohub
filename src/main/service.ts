@@ -32,7 +32,12 @@ import { validateAutoCollectIntervalMinutes, type CollectionScheduleStatus } fro
 import { TeamSyncClient } from '../core/team/sync-client'
 import { applyRemoteArticle } from '../core/team/apply-remote'
 import { clearTeamCredentials, loadTeamCredentials, saveTeamCredentials } from './team-secrets'
-import { rssSourceId, validateTeamServerUrl, type TeamJoinInput } from '../shared/team'
+import {
+  rssSourceId,
+  validateTeamServerUrl,
+  validateTeamSyncIntervalMinutes,
+  type TeamJoinInput
+} from '../shared/team'
 import {
   validateArticleMaintenanceRequest,
   type ArticleMaintenanceItemResult,
@@ -77,6 +82,8 @@ export class Service {
       paths: this.paths,
       serverUrl: this.settings.team.serverUrl,
       enabled: this.settings.team.enabled,
+      autoSyncEnabled: this.settings.team.autoSyncEnabled,
+      intervalMinutes: this.settings.team.intervalMinutes,
       credentials: loadTeamCredentials(this.paths.teamDevice),
       onCredentials: (credentials) => {
         if (credentials) saveTeamCredentials(this.paths.teamDevice, credentials)
@@ -451,7 +458,11 @@ export class Service {
       const followed = new Set(this.store.listSources().map((source) => source.id))
       return articles.filter((article) => followed.has(article.source.id))
     })
-    this.handle(IPC.articleGet, (id) => this.store.getArticleDetail(id as string))
+    // 阅读页先取 Markdown；体积更大的公众号 HTML 仅在用户选择原始排版时读取。
+    this.handle(IPC.articleGet, (id) => this.store.getArticle(id as string))
+    this.handle(IPC.articleGetContentHtml, (id) =>
+      this.store.getArticleContentHtml(id as string)
+    )
     this.handle(IPC.articleMarkRead, (id, read) =>
       this.store.setRead(id as string, read as boolean)
     )
@@ -480,13 +491,37 @@ export class Service {
 
     // —— 团队同步 ——
     this.handle(IPC.teamStatus, () => this.team.status())
+    this.handle(IPC.teamUpdateSettings, (rawInput) => {
+      if (!rawInput || typeof rawInput !== 'object' || Array.isArray(rawInput)) {
+        throw new Error('团队自动同步设置无效')
+      }
+      const input = rawInput as { autoSyncEnabled?: unknown; intervalMinutes?: unknown }
+      if (typeof input.autoSyncEnabled !== 'boolean') {
+        throw new Error('请选择是否开启团队自动同步')
+      }
+      const next: InfohubSettings = {
+        ...this.settings,
+        team: {
+          ...this.settings.team,
+          autoSyncEnabled: input.autoSyncEnabled,
+          intervalMinutes: validateTeamSyncIntervalMinutes(input.intervalMinutes)
+        }
+      }
+      saveSettings(this.paths.settings, next)
+      this.settings = next
+      this.team.configureSchedule({
+        autoSyncEnabled: next.team.autoSyncEnabled,
+        intervalMinutes: next.team.intervalMinutes
+      })
+      return this.team.status()
+    })
     this.handle(IPC.teamJoin, async (rawInput) => {
       const input = rawInput as TeamJoinInput
       const serverUrl = validateTeamServerUrl(input.serverUrl)
       const status = await this.team.join({ ...input, serverUrl })
       const next: InfohubSettings = {
         ...this.settings,
-        team: { serverUrl, enabled: true }
+        team: { ...this.settings.team, serverUrl, enabled: true }
       }
       try {
         saveSettings(this.paths.settings, next)

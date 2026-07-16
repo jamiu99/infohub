@@ -12,11 +12,14 @@ const deviceName = ref('')
 const teamToken = ref('')
 const actionError = ref('')
 const actionMessage = ref('')
+const autoSyncEnabled = ref(true)
+const intervalMinutes = ref(5)
+const scheduleSaving = ref(false)
 
 const status = computed(() => store.state.team)
 const joined = computed(() => Boolean(status.value?.device))
 const busy = computed(
-  () => store.state.teamLoading || status.value?.state === 'syncing'
+  () => scheduleSaving.value || store.state.teamLoading || status.value?.state === 'syncing'
 )
 const statusError = computed(() =>
   store.state.teamError ||
@@ -27,6 +30,16 @@ watch(
   () => status.value?.serverUrl,
   (value) => {
     if (value && !joined.value) serverUrl.value = value
+  },
+  { immediate: true }
+)
+
+watch(
+  status,
+  (value) => {
+    if (!value || scheduleSaving.value) return
+    autoSyncEnabled.value = value.autoSyncEnabled
+    intervalMinutes.value = value.intervalMinutes
   },
   { immediate: true }
 )
@@ -47,6 +60,14 @@ const deviceLabel = computed(() =>
 const memberLabel = computed(() =>
   textField(status.value?.device, ['memberName', 'member'])
 )
+const scheduleText = computed(() => {
+  if (!autoSyncEnabled.value) {
+    return '自动同步已关闭；本机新采结果仍会排队，可随时手动同步。'
+  }
+  if (status.value?.state === 'syncing') return '正在同步；完成后会重新等待完整周期。'
+  if (status.value?.nextSyncAt) return `下次自动同步：${dateTime(status.value.nextSyncAt)}`
+  return '自动同步已开启，下一轮将在完整周期后开始。'
+})
 
 function resetFeedback(): void {
   actionError.value = ''
@@ -114,6 +135,35 @@ async function syncNow(): Promise<void> {
   }
 }
 
+async function saveSchedule(): Promise<void> {
+  if (scheduleSaving.value || !status.value) return
+  const previous = {
+    autoSyncEnabled: status.value.autoSyncEnabled,
+    intervalMinutes: status.value.intervalMinutes
+  }
+  scheduleSaving.value = true
+  resetFeedback()
+  try {
+    await store.updateTeamSettings({
+      autoSyncEnabled: autoSyncEnabled.value,
+      intervalMinutes: intervalMinutes.value
+    })
+    if (store.state.team) {
+      autoSyncEnabled.value = store.state.team.autoSyncEnabled
+      intervalMinutes.value = store.state.team.intervalMinutes
+    }
+    actionMessage.value = autoSyncEnabled.value
+      ? '团队自动同步设置已保存'
+      : '已关闭团队自动同步；待上传内容会继续保留'
+  } catch (error) {
+    autoSyncEnabled.value = previous.autoSyncEnabled
+    intervalMinutes.value = previous.intervalMinutes
+    actionError.value = userFacingError(error, '团队自动同步设置保存失败')
+  } finally {
+    scheduleSaving.value = false
+  }
+}
+
 async function leave(): Promise<void> {
   resetFeedback()
   const confirmed = window.confirm(
@@ -154,6 +204,43 @@ async function leave(): Promise<void> {
         <span v-if="status.quarantinedUploads">已隔离 {{ status.quarantinedUploads }}</span>
         <span v-if="status.lastSyncAt">上次 {{ dateTime(status.lastSyncAt) }}</span>
         <span v-else>尚未同步</span>
+      </div>
+      <div class="schedule-card">
+        <div class="schedule-heading">
+          <div>
+            <strong>自动同步团队数据</strong>
+            <p>定时上传本机采集结果，并拉取伙伴的新内容。</p>
+          </div>
+          <label class="toggle">
+            <input
+              v-model="autoSyncEnabled"
+              type="checkbox"
+              :disabled="scheduleSaving"
+              @change="saveSchedule"
+            />
+            <span>{{ autoSyncEnabled ? '已开启' : '已关闭' }}</span>
+          </label>
+        </div>
+        <label class="interval-row">
+          <span>同步频率</span>
+          <select
+            v-model.number="intervalMinutes"
+            :disabled="!autoSyncEnabled || scheduleSaving"
+            @change="saveSchedule"
+          >
+            <option :value="1">每 1 分钟（较频繁）</option>
+            <option :value="5">每 5 分钟（推荐）</option>
+            <option :value="15">每 15 分钟</option>
+            <option :value="30">每 30 分钟</option>
+            <option :value="60">每 1 小时</option>
+            <option :value="240">每 4 小时</option>
+            <option :value="1440">每天</option>
+          </select>
+        </label>
+        <p class="schedule-status">{{ scheduleText }}</p>
+        <p class="schedule-hint">
+          关闭只会暂停定时网络请求，不会退出团队、删除已有内容或停止写入待上传队列。“立即同步”始终可用。
+        </p>
       </div>
       <div v-if="statusError" class="error">{{ statusError }}</div>
       <div class="actions">
@@ -298,6 +385,55 @@ async function leave(): Promise<void> {
   margin-top: 5px;
   font-size: 11px;
 }
+.schedule-card {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+}
+.schedule-heading,
+.interval-row,
+.toggle {
+  display: flex;
+  align-items: center;
+}
+.schedule-heading,
+.interval-row {
+  justify-content: space-between;
+  gap: 12px;
+}
+.schedule-heading strong {
+  color: var(--text);
+  font-size: 12px;
+}
+.schedule-heading p,
+.schedule-status,
+.schedule-hint {
+  margin: 3px 0 0;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.toggle {
+  flex: 0 0 auto;
+  gap: 5px;
+}
+.interval-row {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.interval-row select {
+  width: min(180px, 60%);
+}
+.schedule-status {
+  margin-top: 10px;
+  color: var(--accent);
+}
+.schedule-hint {
+  font-size: 11px;
+}
 .actions {
   margin-top: 8px;
 }
@@ -375,5 +511,15 @@ async function leave(): Promise<void> {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+@media (max-width: 620px) {
+  .schedule-heading,
+  .interval-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .interval-row select {
+    width: 100%;
+  }
 }
 </style>

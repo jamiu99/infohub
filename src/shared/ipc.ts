@@ -1,7 +1,7 @@
 // IPC 契约：renderer 通过 preload 暴露的 window.api 调用 main。
 // 单一事实来源，preload 与 renderer 类型都从这里取。
 
-import type { Source, Article, ArticleDetail, DiscoverResult } from './contract'
+import type { Source, ArticleListItem, ArticleDetail, DiscoverResult } from './contract'
 import type { WechatCollectionSettings, WxAccountView } from './wechat'
 import type { TeamJoinInput, TeamStatus } from './team'
 import type { CollectionScheduleStatus, CollectionSettingsView } from './collection'
@@ -74,8 +74,10 @@ export interface InfohubApi {
   }
   // —— 文章 ——
   article: {
-    list(opts?: ArticleListOptions): Promise<Article[]>
+    list(opts?: ArticleListOptions): Promise<ArticleListItem[]>
+    /** 先读取 Markdown 详情；公众号原始 HTML 通过 getContentHtml 按需加载。 */
     get(id: string): Promise<ArticleDetail | null>
+    getContentHtml(id: string): Promise<string | null>
     markRead(id: string, read: boolean): Promise<void>
     /** 将当前来源/阅读范围内所有未归档文章标为已读，不受列表 500 条上限影响。 */
     markAllRead(opts?: MarkAllReadOptions): Promise<number>
@@ -87,6 +89,10 @@ export interface InfohubApi {
   // —— 团队同步 ——
   team: {
     status(): Promise<TeamStatus>
+    updateSettings(input: {
+      autoSyncEnabled: boolean
+      intervalMinutes: number
+    }): Promise<TeamStatus>
     join(input: TeamJoinInput): Promise<TeamStatus>
     leave(): Promise<TeamStatus>
     syncNow(): Promise<TeamStatus>
@@ -135,12 +141,14 @@ export const IPC = {
   sourceRefresh: 'source:refresh',
   articleList: 'article:list',
   articleGet: 'article:get',
+  articleGetContentHtml: 'article:getContentHtml',
   articleMarkRead: 'article:markRead',
   articleMarkAllRead: 'article:markAllRead',
   articleArchive: 'article:archive',
   articleUnreadCounts: 'article:unreadCounts',
   articleReprocess: 'article:reprocess',
   teamStatus: 'team:status',
+  teamUpdateSettings: 'team:updateSettings',
   teamJoin: 'team:join',
   teamLeave: 'team:leave',
   teamSyncNow: 'team:syncNow'

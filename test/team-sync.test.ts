@@ -83,6 +83,131 @@ function jsonResponse(value: unknown, status = 200): Response {
   })
 }
 
+test('团队自动同步使用单次 timeout；关闭后仍可入队和手动同步', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'infohub-team-schedule-'))
+  const paths = makePaths(dir)
+  const credentials: TeamDeviceCredentials = {
+    serverUrl: DEFAULT_TEAM_SERVER_URL,
+    instanceId: 'instance-schedule',
+    teamName: '调度测试',
+    device: { id: 'device-schedule', memberName: '我', deviceName: '电脑' },
+    deviceToken: 'device-token'
+  }
+  let now = 1_000
+  let nextTimerId = 0
+  const timers = new Map<number, { callback: () => void; delay: number }>()
+  const requests: string[] = []
+  const client = new TeamSyncClient({
+    paths,
+    serverUrl: DEFAULT_TEAM_SERVER_URL,
+    enabled: true,
+    autoSyncEnabled: true,
+    intervalMinutes: 5,
+    credentials,
+    now: () => now,
+    setTimeoutImpl: (callback, delay) => {
+      const id = ++nextTimerId
+      timers.set(id, { callback, delay })
+      return id as unknown as ReturnType<typeof setTimeout>
+    },
+    clearTimeoutImpl: (timer) => timers.delete(timer as unknown as number),
+    fetchImpl: async (input, init) => {
+      const url = String(input)
+      requests.push(url)
+      if (url.endsWith('/api/v2/status')) {
+        return jsonResponse({
+          instanceId: credentials.instanceId,
+          teamName: credentials.teamName,
+          device: credentials.device
+        })
+      }
+      if (url.endsWith('/api/v2/sync/push')) {
+        const items = (JSON.parse(String(init?.body)) as { items: TeamArticleUpload[] }).items
+        return jsonResponse({ accepted: items.length, cursor: 1 })
+      }
+      return jsonResponse({ cursor: 0, hasMore: false, changes: [] })
+    },
+    onCredentials: () => undefined,
+    onRemoteArticle: () => undefined
+  })
+
+  try {
+    client.start()
+    await client.syncNow()
+    assert.deepEqual(requests.map((url) => new URL(url).pathname), [
+      '/api/v2/status',
+      '/api/v2/sync/pull'
+    ])
+    assert.equal(timers.size, 1)
+    assert.equal([...timers.values()][0].delay, 5 * 60_000)
+    assert.equal(client.status().nextSyncAt, now + 5 * 60_000)
+
+    client.configureSchedule({ autoSyncEnabled: false, intervalMinutes: 15 })
+    assert.equal(client.status().autoSyncEnabled, false)
+    assert.equal(client.status().intervalMinutes, 15)
+    assert.equal(client.status().nextSyncAt, undefined)
+    assert.equal(timers.size, 0)
+
+    // 关闭只停定时网络；本地结果仍可靠入队，手动同步仍会完成 push/pull。
+    assert.equal(client.enqueue(source, { ...article('schedule-manual'), id: 'schedule-manual' }), true)
+    const beforeManual = requests.length
+    const manual = await client.syncNow()
+    assert.equal(requests.length, beforeManual + 3)
+    assert.equal(manual.pendingUploads, 0)
+    assert.equal(timers.size, 0)
+
+    // 从关闭切到开启会立即同步，并在完成后才安排一个完整周期。
+    now = 2_000
+    const beforeEnable = requests.length
+    client.configureSchedule({ autoSyncEnabled: true, intervalMinutes: 15 })
+    await client.syncNow()
+    assert.equal(requests.length, beforeEnable + 2)
+    assert.equal(timers.size, 1)
+    assert.equal([...timers.values()][0].delay, 15 * 60_000)
+    assert.equal(client.status().nextSyncAt, now + 15 * 60_000)
+
+    // 已开启时修改频率只重置单个倒计时，不额外发起网络请求或遗留旧 timer。
+    const beforeReconfigure = requests.length
+    client.configureSchedule({ autoSyncEnabled: true, intervalMinutes: 30 })
+    assert.equal(requests.length, beforeReconfigure)
+    assert.equal(timers.size, 1)
+    assert.equal([...timers.values()][0].delay, 30 * 60_000)
+    assert.equal(client.status().nextSyncAt, now + 30 * 60_000)
+    assert.throws(
+      () => client.configureSchedule({ autoSyncEnabled: false, intervalMinutes: 0 }),
+      /1–1440/
+    )
+    assert.equal(client.status().autoSyncEnabled, true)
+    assert.equal(client.status().intervalMinutes, 30)
+    assert.equal(timers.size, 1)
+
+    // timer 到点执行一轮；同步期间不会再预排另一个 timer，完成后才续排。
+    const [timerId, scheduled] = [...timers.entries()][0]
+    timers.delete(timerId)
+    now = 3_000
+    scheduled.callback()
+    assert.equal(client.status().nextSyncAt, undefined)
+    await client.syncNow()
+    assert.equal(timers.size, 1)
+    assert.equal(client.status().nextSyncAt, now + 30 * 60_000)
+
+    client.stop()
+    assert.equal(timers.size, 0)
+    assert.equal(client.status().nextSyncAt, undefined)
+
+    // 持久化为关闭状态后重新启动，不应偷偷执行启动同步。
+    client.configureSchedule({ autoSyncEnabled: false, intervalMinutes: 60 })
+    const beforeDisabledStart = requests.length
+    client.start()
+    await Promise.resolve()
+    assert.equal(requests.length, beforeDisabledStart)
+    assert.equal(timers.size, 0)
+  } finally {
+    client.stop()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('团队服务器只允许无凭据、无查询参数的 HTTPS 地址', () => {
   assert.equal(validateTeamServerUrl(`${DEFAULT_TEAM_SERVER_URL}/`), DEFAULT_TEAM_SERVER_URL)
   assert.throws(() => validateTeamServerUrl('http://localhost:18038'), /只允许使用 HTTPS/)
